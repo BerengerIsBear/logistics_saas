@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { use, useMemo, useState } from "react";
 import Link from "next/link";
 
 type JobStatus = "pending" | "assigned" | "in_transit" | "delivered";
@@ -64,12 +64,11 @@ function labelStatus(s: JobStatus) {
 export default function JobDetailsPage({
   params,
 }: {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 }) {
-  const job = useMemo(
-    () => mockJobs.find((j) => j.id === params.id),
-    [params.id]
-  );
+  const { id } = use(params);
+
+  const job = useMemo(() => mockJobs.find((j) => j.id === id), [id]);
 
   const [status, setStatus] = useState<JobStatus>(job?.status ?? "pending");
 
@@ -83,7 +82,7 @@ export default function JobDetailsPage({
           </Link>
         </div>
         <p className="mt-2 text-gray-600">
-          No job found for ID: <span className="font-medium">{params.id}</span>
+          No job found for ID: <span className="font-medium">{id}</span>
         </p>
       </main>
     );
@@ -159,7 +158,9 @@ export default function JobDetailsPage({
 
         {/* POD Upload placeholder */}
         <section className="rounded-lg border bg-white p-5">
-          <h2 className="text-sm font-semibold text-gray-700">Proof of Delivery</h2>
+          <h2 className="text-sm font-semibold text-gray-700">
+            Proof of Delivery
+          </h2>
 
           <div className="mt-4 rounded-lg border-2 border-dashed p-6 text-center">
             <div className="text-sm font-medium">Upload POD</div>
