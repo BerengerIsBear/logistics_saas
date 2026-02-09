@@ -2,17 +2,25 @@
 export type JobStatus = "pending" | "assigned" | "in_transit" | "delivered";
 
 export type Job = {
-  id: string;
+  id: string; // e.g. JOB-1001
   customer: string;
   pickup: string;
   dropoff: string;
   driver?: string;
   status: JobStatus;
-  createdAt: string;
+  notes?: string;
+  createdAt: number; // for sorting later
 };
 
-// Module-scope store (MVP only).
-// Notes: resets on full reload / redeploy. Good enough for Phase 1.
+type NewJobInput = {
+  customer: string;
+  pickup: string;
+  dropoff: string;
+  driver?: string;
+  status: JobStatus;
+  notes?: string;
+};
+
 let jobs: Job[] = [
   {
     id: "JOB-1001",
@@ -21,7 +29,7 @@ let jobs: Job[] = [
     dropoff: "Changi Cargo Complex",
     driver: "Ahmad",
     status: "assigned",
-    createdAt: new Date().toISOString(),
+    createdAt: Date.now() - 1000 * 60 * 60 * 24 * 2,
   },
   {
     id: "JOB-1002",
@@ -30,12 +38,13 @@ let jobs: Job[] = [
     dropoff: "Sengkang",
     driver: "Ben",
     status: "in_transit",
-    createdAt: new Date().toISOString(),
+    createdAt: Date.now() - 1000 * 60 * 60 * 24,
   },
 ];
 
 const listeners = new Set<() => void>();
-function notify() {
+
+function emit() {
   for (const l of listeners) l();
 }
 
@@ -44,43 +53,59 @@ export function subscribe(listener: () => void) {
   return () => listeners.delete(listener);
 }
 
-export function getJobs(): Job[] {
+export function getJobs() {
   return jobs;
 }
 
-export function getJobById(id: string): Job | undefined {
+export function getJobById(id: string) {
   return jobs.find((j) => j.id === id);
 }
 
-export function addJob(input: Omit<Job, "id" | "createdAt">): Job {
-  const nextNum =
-    Math.max(
-      1000,
-      ...jobs
-        .map((j) => Number(j.id.replace("JOB-", "")))
-        .filter((n) => Number.isFinite(n))
-    ) + 1;
+function nextJobId() {
+  const nums = jobs
+    .map((j) => Number(j.id.replace("JOB-", "")))
+    .filter((n) => Number.isFinite(n));
+  const max = nums.length ? Math.max(...nums) : 1000;
+  return `JOB-${max + 1}`;
+}
 
+export function addJob(input: NewJobInput) {
   const job: Job = {
-    id: `JOB-${nextNum}`,
-    createdAt: new Date().toISOString(),
-    ...input,
+    id: nextJobId(),
+    customer: input.customer,
+    pickup: input.pickup,
+    dropoff: input.dropoff,
+    driver: input.driver || undefined,
+    status: input.status,
+    notes: input.notes || undefined,
+    createdAt: Date.now(),
   };
 
-  jobs = [job, ...jobs];
-  notify();
+  jobs = [job, ...jobs]; // newest first (nice default)
+  emit();
   return job;
 }
 
-export function updateJobStatus(id: string, status: JobStatus): Job | undefined {
-  let updated: Job | undefined;
+export function updateJobStatus(id: string, status: JobStatus) {
+  let changed = false;
 
   jobs = jobs.map((j) => {
     if (j.id !== id) return j;
-    updated = { ...j, status };
-    return updated;
+    changed = true;
+    return { ...j, status };
   });
 
-  if (updated) notify();
-  return updated;
+  if (changed) emit();
+}
+
+export function updateJobNotes(id: string, notes?: string) {
+  let changed = false;
+
+  jobs = jobs.map((j) => {
+    if (j.id !== id) return j;
+    changed = true;
+    return { ...j, notes: notes?.trim() || undefined };
+  });
+
+  if (changed) emit();
 }

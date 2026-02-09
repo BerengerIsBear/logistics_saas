@@ -3,24 +3,14 @@
 
 import { use, useMemo, useState } from "react";
 import Link from "next/link";
-import {
-  getJobById,
-  updateJobStatus,
-  type JobStatus,
-} from "@/lib/mockStore";
+import { getJobById, updateJobStatus, type JobStatus } from "@/lib/mockStore";
 
-function labelStatus(s: JobStatus) {
-  switch (s) {
-    case "pending":
-      return "Pending";
-    case "assigned":
-      return "Assigned";
-    case "in_transit":
-      return "In Transit";
-    case "delivered":
-      return "Delivered";
-  }
-}
+import { PageShell } from "@/components/PageShell";
+import { PageHeader } from "@/components/PageHeader";
+import { Card, CardContent, CardHeader } from "@/components/ui/Card";
+import { Button } from "@/components/ui/Button";
+import { Select } from "@/components/ui/Select";
+import { StatusBadge } from "@/components/ui/StatusBadge";
 
 export default function JobDetailsPage({
   params,
@@ -36,128 +26,146 @@ export default function JobDetailsPage({
 
   if (!job) {
     return (
-      <main className="p-6">
-        <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-semibold">Job not found</h1>
-          <Link className="text-sm underline" href="/jobs">
-            Back to Jobs
-          </Link>
-        </div>
-        <p className="mt-2 text-gray-600">
-          No job found for ID: <span className="font-medium">{id}</span>
-        </p>
-      </main>
+      <PageShell>
+        <PageHeader
+          title="Job not found"
+          subtitle={`No job found for ID: ${id}`}
+          action={
+            <Link href="/jobs">
+              <Button variant="outlineDark">Back to Jobs</Button>
+            </Link>
+          }
+        />
+      </PageShell>
     );
   }
 
   function onSave() {
-    if (!job) return;
-
-    updateJobStatus(job.id, status);
+    updateJobStatus(id, status);
     setSavedMsg("Saved!");
     setTimeout(() => setSavedMsg(""), 1200);
   }
 
-  const labelClass = "text-xs text-gray-500";
-  const valueClass = "mt-1 font-medium text-gray-900";
-
   return (
-    <main className="p-6">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold">{job.id}</h1>
-          <p className="mt-1 text-sm text-gray-600">{job.customer}</p>
-        </div>
-
-        <div className="flex items-center gap-3">
-          <Link
-            href="/jobs"
-            className="rounded-md border px-4 py-2 text-sm font-medium hover:bg-gray-50"
-          >
-            Back
+    <PageShell>
+      <PageHeader
+        title={job.id}
+        subtitle={job.customer}
+        action={
+          <Link href="/jobs">
+            <Button variant="outlineDark">Back</Button>
           </Link>
-        </div>
-      </div>
+        }
+      />
 
-      <div className="mt-6 grid gap-6 lg:grid-cols-3">
+      <div className="grid gap-6 lg:grid-cols-3">
         {/* Job Info */}
-        <section className="lg:col-span-2 rounded-lg border bg-white p-5 text-gray-800">
-          <h2 className="text-sm font-semibold text-gray-900">Job Info</h2>
+        <Card className="lg:col-span-2">
+          <CardHeader>
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-sm font-medium text-neutral-900">Job Info</div>
+                <div className="mt-1 text-sm text-neutral-500">
+                  View details and update the job status.
+                </div>
+              </div>
+              <StatusBadge status={status} />
+            </div>
+          </CardHeader>
 
-          <div className="mt-4 grid gap-4 sm:grid-cols-2">
-            <div>
-              <div className={labelClass}>Pickup</div>
-              <div className={valueClass}>{job.pickup}</div>
+          <CardContent>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <div className="text-xs text-neutral-500">Pickup</div>
+                <div className="mt-1 font-medium text-neutral-900">{job.pickup}</div>
+              </div>
+
+              <div>
+                <div className="text-xs text-neutral-500">Drop-off</div>
+                <div className="mt-1 font-medium text-neutral-900">{job.dropoff}</div>
+              </div>
+
+              <div>
+                <div className="text-xs text-neutral-500">Driver</div>
+                <div className="mt-1 font-medium text-neutral-900">{job.driver ?? "-"}</div>
+              </div>
+
+              <div>
+                <div className="text-xs text-neutral-500">Status</div>
+                <div className="mt-1 font-medium text-neutral-900">
+                  {status === "in_transit"
+                    ? "In Transit"
+                    : status.charAt(0).toUpperCase() + status.slice(1)}
+                </div>
+              </div>
             </div>
 
-            <div>
-              <div className={labelClass}>Drop-off</div>
-              <div className={valueClass}>{job.dropoff}</div>
+            {job.notes ? (
+              <div className="mt-6">
+                <div className="text-xs text-neutral-500">Notes</div>
+                <div className="mt-1 font-medium text-neutral-900">{job.notes}</div>
+              </div>
+            ) : null}
+
+            <div className="mt-6 flex flex-wrap items-center gap-3">
+              <div className="text-sm font-medium text-neutral-700">Update status</div>
+
+              <div className="min-w-[220px]">
+                <Select
+                  value={status}
+                  onChange={(e) => setStatus(e.target.value as JobStatus)}
+                >
+                  <option value="pending">Pending</option>
+                  <option value="assigned">Assigned</option>
+                  <option value="in_transit">In Transit</option>
+                  <option value="delivered">Delivered</option>
+                </Select>
+              </div>
+
+              <Button variant="primary" type="button" onClick={onSave}>
+                Save
+              </Button>
+
+              {savedMsg ? (
+                <span className="text-sm text-neutral-700">{savedMsg}</span>
+              ) : null}
             </div>
 
-            <div>
-              <div className={labelClass}>Driver</div>
-              <div className={valueClass}>{job.driver ?? "-"}</div>
-            </div>
-
-            <div>
-              <div className={labelClass}>Status</div>
-              <div className={valueClass}>{labelStatus(status)}</div>
-            </div>
-          </div>
-
-          <div className="mt-6 flex flex-wrap items-center gap-3">
-            <label className="text-sm font-medium text-gray-700">
-              Update status
-            </label>
-
-            <select
-              className="rounded-md border px-3 py-2 text-sm text-gray-900"
-              value={status}
-              onChange={(e) => setStatus(e.target.value as JobStatus)}
-            >
-              <option value="pending">Pending</option>
-              <option value="assigned">Assigned</option>
-              <option value="in_transit">In Transit</option>
-              <option value="delivered">Delivered</option>
-            </select>
-
-            <button
-              onClick={onSave}
-              className="rounded-md bg-black px-4 py-2 text-sm font-medium text-white hover:opacity-90"
-            >
-              Save
-            </button>
-
-            {savedMsg && <span className="text-sm text-gray-700">{savedMsg}</span>}
-          </div>
-
-          <p className="mt-2 text-xs text-gray-500">
-            (MVP: Save updates the mock store only. Later we’ll save to Supabase.)
-          </p>
-        </section>
+            <p className="mt-3 text-xs text-neutral-500">
+              (MVP: Save updates the mock store only. Later we’ll save to Supabase.)
+            </p>
+          </CardContent>
+        </Card>
 
         {/* POD Upload placeholder */}
-        <section className="rounded-lg border bg-white p-5 text-gray-800">
-          <h2 className="text-sm font-semibold text-gray-900">
-            Proof of Delivery
-          </h2>
-
-          <div className="mt-4 rounded-lg border-2 border-dashed border-gray-200 p-6 text-center">
-            <div className="text-sm font-medium text-gray-900">Upload POD</div>
-            <p className="mt-1 text-xs text-gray-600">
+        <Card>
+          <CardHeader>
+            <div className="text-sm font-medium text-neutral-900">Proof of Delivery</div>
+            <div className="mt-1 text-sm text-neutral-500">
               Photo / signature will go here.
-            </p>
+            </div>
+          </CardHeader>
 
-            <button
-              onClick={() => alert("POD upload coming next")}
-              className="mt-4 rounded-md border px-4 py-2 text-sm font-medium text-gray-800 hover:bg-gray-50"
-            >
-              Choose File
-            </button>
-          </div>
-        </section>
+          <CardContent>
+            <div className="rounded-xl border-2 border-dashed border-neutral-200 p-6 text-center">
+              <div className="text-sm font-medium text-neutral-900">Upload POD</div>
+              <p className="mt-1 text-xs text-neutral-500">
+                Attach a photo, signature, or document.
+              </p>
+
+              <div className="mt-4">
+                <Button
+                  variant="outline"
+                  type="button"
+                  onClick={() => alert("POD upload coming next")}
+                >
+                  Choose File
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       </div>
-    </main>
+    </PageShell>
   );
 }

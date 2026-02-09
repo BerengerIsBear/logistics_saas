@@ -3,99 +3,83 @@
 
 import Link from "next/link";
 import { useSyncExternalStore } from "react";
-import { getJobs, subscribe, type JobStatus } from "@/lib/mockStore";
+import { getJobs, subscribe } from "@/lib/mockStore";
 
-const STATUS_LABEL: Record<JobStatus, string> = {
-  pending: "Pending",
-  assigned: "Assigned",
-  in_transit: "In Transit",
-  delivered: "Delivered",
-};
-
-const STATUS_CLASS: Record<JobStatus, string> = {
-  pending: "bg-yellow-100 text-yellow-800",
-  assigned: "bg-blue-100 text-blue-800",
-  in_transit: "bg-purple-100 text-purple-800",
-  delivered: "bg-green-100 text-green-800",
-};
-
-function StatusBadge({ status }: { status: JobStatus }) {
-  return (
-    <span
-      className={`inline-flex items-center rounded-full px-2 py-1 text-xs font-medium ${STATUS_CLASS[status]}`}
-    >
-      {STATUS_LABEL[status]}
-    </span>
-  );
-}
+import { PageShell } from "@/components/PageShell";
+import { PageHeader } from "@/components/PageHeader";
+import { Card, CardContent } from "@/components/ui/Card";
+import { Button } from "@/components/ui/Button";
+import { StatusBadge } from "@/components/ui/StatusBadge";
 
 export default function JobsPage() {
   const jobs = useSyncExternalStore(subscribe, getJobs, getJobs);
 
   return (
-    <main className="p-6">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold">Jobs</h1>
-          <p className="mt-1 text-sm text-gray-600">
-            Track deliveries, assign drivers, and update status.
-          </p>
-        </div>
+    <PageShell>
+      <PageHeader
+        title="Jobs"
+        subtitle="Track deliveries, assign drivers, and update status."
+        action={
+          <Link href="/jobs/new">
+            <Button variant="outlineDark">+ Create Job</Button>
+          </Link>
+        }
+      />
 
-        {/* Create Job – white primary button */}
-        <Link
-          href="/jobs/new"
-          className="rounded-md border px-4 py-2 text-sm font-medium hover:bg-gray-50"
-        >
-          + Create Job
-        </Link>
-      </div>
+      <Card>
+        <CardContent className="!p-0">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="border-b border-neutral-200 bg-neutral-50 text-left text-xs font-semibold uppercase tracking-wide text-neutral-600">
+                <tr>
+                  <th className="px-6 py-3">Job ID</th>
+                  <th className="px-6 py-3">Customer</th>
+                  <th className="px-6 py-3">Pickup</th>
+                  <th className="px-6 py-3">Drop-off</th>
+                  <th className="px-6 py-3">Driver</th>
+                  <th className="px-6 py-3">Status</th>
+                </tr>
+              </thead>
 
-      <div className="mt-6 overflow-hidden rounded-lg border bg-white text-gray-700">
-        <table className="w-full text-sm">
-          <thead className="bg-gray-100 text-left text-xs font-semibold uppercase tracking-wide text-gray-600 border-b border-gray-200">
-            <tr>
-              <th className="px-4 py-3">Job ID</th>
-              <th className="px-4 py-3">Customer</th>
-              <th className="px-4 py-3">Pickup</th>
-              <th className="px-4 py-3">Drop-off</th>
-              <th className="px-4 py-3">Driver</th>
-              <th className="px-4 py-3">Status</th>
-            </tr>
-          </thead>
+              <tbody className="divide-y divide-neutral-200 text-neutral-700">
+                {jobs.map((job) => (
+                  <tr key={job.id} className="hover:bg-neutral-50/70">
+                    <td className="px-6 py-3 font-medium">
+                      <Link
+                        href={`/jobs/${job.id}`}
+                        className="text-neutral-900 hover:underline"
+                      >
+                        {job.id}
+                      </Link>
+                    </td>
 
-          <tbody className="divide-y text-gray-600">
-            {jobs.map((job) => (
-              <tr key={job.id} className="hover:bg-gray-50">
-                <td className="px-4 py-3 font-medium">
-                  <Link
-                    href={`/jobs/${job.id}`}
-                    className="text-gray-700 hover:text-gray-900 hover:underline"
-                  >
-                    {job.id}
-                  </Link>
-                </td>
+                    <td className="px-6 py-3">{job.customer}</td>
+                    <td className="px-6 py-3">{job.pickup}</td>
+                    <td className="px-6 py-3">{job.dropoff}</td>
+                    <td className="px-6 py-3">{job.driver ?? "-"}</td>
+                    <td className="px-6 py-3">
+                      <StatusBadge status={job.status} />
+                    </td>
+                  </tr>
+                ))}
 
-                <td className="px-4 py-3">{job.customer}</td>
-                <td className="px-4 py-3">{job.pickup}</td>
-                <td className="px-4 py-3">{job.dropoff}</td>
-                <td className="px-4 py-3">{job.driver ?? "-"}</td>
-                <td className="px-4 py-3">
-                  <StatusBadge status={job.status} />
-                </td>
-              </tr>
-            ))}
-
-            {jobs.length === 0 && (
-              <tr>
-                <td className="px-4 py-6 text-sm text-gray-500" colSpan={6}>
-                  No jobs yet.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-    </main>
+                {jobs.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="px-6 py-10 text-center">
+                      <div className="text-sm text-neutral-500">No jobs yet.</div>
+                      <div className="mt-3">
+                        <Link href="/jobs/new">
+                          <Button variant="primary">Create your first job</Button>
+                        </Link>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
+    </PageShell>
   );
 }
