@@ -2,17 +2,60 @@
 "use client";
 
 import Link from "next/link";
-import { useSyncExternalStore } from "react";
-import { getJobs, subscribe } from "@/lib/mockStore";
+import { useMemo, useState, useSyncExternalStore } from "react";
+import { getJobs, subscribe, type JobStatus } from "@/lib/mockStore";
 
 import { PageShell } from "@/components/PageShell";
 import { PageHeader } from "@/components/PageHeader";
 import { Card, CardContent } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { StatusBadge } from "@/components/ui/StatusBadge";
+import { Input } from "@/components/ui/Input";
+import { Select } from "@/components/ui/Select";
+
+type StatusFilter = "all" | JobStatus;
+type SortMode = "newest" | "oldest";
 
 export default function JobsPage() {
   const jobs = useSyncExternalStore(subscribe, getJobs, getJobs);
+
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [sort, setSort] = useState<SortMode>("newest");
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+
+    let rows = jobs;
+
+    if (q) {
+      rows = rows.filter((j) => {
+        const id = String(j.id ?? "").toLowerCase();
+        const customer = String(j.customer ?? "").toLowerCase();
+        return id.includes(q) || customer.includes(q);
+      });
+    }
+
+    if (statusFilter !== "all") {
+      rows = rows.filter((j) => j.status === statusFilter);
+    }
+
+    // Sort by createdAt if present; otherwise keep stable order.
+    const getTime = (j: any) =>
+      typeof j.createdAt === "number"
+        ? j.createdAt
+        : j.createdAt
+        ? new Date(j.createdAt).getTime()
+        : 0;
+
+    rows = [...rows].sort((a: any, b: any) => {
+      const ta = getTime(a);
+      const tb = getTime(b);
+      return sort === "newest" ? tb - ta : ta - tb;
+    });
+
+    return rows;
+  }, [jobs, query, statusFilter, sort]);
 
   return (
     <PageShell>
@@ -25,6 +68,45 @@ export default function JobsPage() {
           </Link>
         }
       />
+
+      {/* Toolbar */}
+      <Card className="mb-4">
+        <CardContent className="bg-white">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <div className="flex-1">
+              <Input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search by Job ID or Customer..."
+              />
+            </div>
+
+            <div className="flex gap-3">
+              <Select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
+              >
+                <option value="all">All Status</option>
+                <option value="pending">Pending</option>
+                <option value="assigned">Assigned</option>
+                <option value="in_transit">In Transit</option>
+                <option value="delivered">Delivered</option>
+              </Select>
+
+              <Select value={sort} onChange={(e) => setSort(e.target.value as SortMode)}>
+                <option value="newest">Newest</option>
+                <option value="oldest">Oldest</option>
+              </Select>
+            </div>
+          </div>
+
+          <div className="mt-2 text-xs text-neutral-500">
+            Showing{" "}
+            <span className="font-medium text-neutral-800">{filtered.length}</span> of{" "}
+            <span className="font-medium text-neutral-800">{jobs.length}</span>
+          </div>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardContent className="!p-0">
@@ -42,7 +124,7 @@ export default function JobsPage() {
               </thead>
 
               <tbody className="divide-y divide-neutral-200 text-neutral-700">
-                {jobs.map((job) => (
+                {filtered.map((job) => (
                   <tr key={job.id} className="hover:bg-neutral-50/70">
                     <td className="px-6 py-3 font-medium">
                       <Link
@@ -70,6 +152,34 @@ export default function JobsPage() {
                       <div className="mt-3">
                         <Link href="/jobs/new">
                           <Button variant="primary">Create your first job</Button>
+                        </Link>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+
+                {jobs.length > 0 && filtered.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="px-6 py-10 text-center">
+                      <div className="text-sm text-neutral-500">
+                        No results. Try clearing search / filters.
+                      </div>
+
+                      <div className="mt-3 flex justify-center gap-2">
+                        <Button
+                          variant="outlineDark"
+                          type="button"
+                          onClick={() => {
+                            setQuery("");
+                            setStatusFilter("all");
+                            setSort("newest");
+                          }}
+                        >
+                          Reset
+                        </Button>
+
+                        <Link href="/jobs/new">
+                          <Button variant="primary">Create job</Button>
                         </Link>
                       </div>
                     </td>

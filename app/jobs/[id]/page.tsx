@@ -1,9 +1,9 @@
 // app/jobs/[id]/page.tsx
 "use client";
 
-import { use, useMemo, useState } from "react";
+import { use, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
-import { getJobById, updateJobStatus, type JobStatus } from "@/lib/mockStore";
+import { getJobs, subscribe, updateJobStatus, type JobStatus } from "@/lib/mockStore";
 
 import { PageShell } from "@/components/PageShell";
 import { PageHeader } from "@/components/PageHeader";
@@ -19,10 +19,17 @@ export default function JobDetailsPage({
 }) {
   const { id } = use(params);
 
-  const job = useMemo(() => getJobById(id), [id]);
+  // reactive job lookup
+  const jobs = useSyncExternalStore(subscribe, getJobs, getJobs);
+  const job = useMemo(() => jobs.find((j) => j.id === id), [jobs, id]);
 
   const [status, setStatus] = useState<JobStatus>(job?.status ?? "pending");
   const [savedMsg, setSavedMsg] = useState("");
+
+  // keep local status in sync if store changes (eg another page updates)
+  useEffect(() => {
+    if (job) setStatus(job.status);
+  }, [job?.status]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!job) {
     return (
@@ -126,9 +133,7 @@ export default function JobDetailsPage({
                 Save
               </Button>
 
-              {savedMsg ? (
-                <span className="text-sm text-neutral-700">{savedMsg}</span>
-              ) : null}
+              {savedMsg ? <span className="text-sm text-neutral-700">{savedMsg}</span> : null}
             </div>
 
             <p className="mt-3 text-xs text-neutral-500">

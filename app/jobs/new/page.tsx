@@ -21,6 +21,12 @@ type NewJob = {
   notes: string;
 };
 
+type Errors = {
+  customer?: string;
+  pickup?: string;
+  dropoff?: string;
+};
+
 export default function NewJobPage() {
   const router = useRouter();
 
@@ -33,22 +39,40 @@ export default function NewJobPage() {
     notes: "",
   });
 
+  const [errors, setErrors] = useState<Errors>({});
+
   function update<K extends keyof NewJob>(key: K, value: NewJob[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
+
+    // clear error as user edits
+    if (key === "customer" || key === "pickup" || key === "dropoff") {
+      setErrors((prev) => ({ ...prev, [key]: undefined }));
+    }
   }
 
   function onSubmit(e: React.FormEvent) {
     e.preventDefault();
 
-      addJob({
-        customer: form.customer.trim(),
-        pickup: form.pickup.trim(),
-        dropoff: form.dropoff.trim(),
-        driver: form.driver.trim() || undefined,
-        status: form.status,
-        notes: form.notes.trim() || undefined,
-      });
+    const customer = form.customer.trim();
+    const pickup = form.pickup.trim();
+    const dropoff = form.dropoff.trim();
 
+    const nextErrors: Errors = {};
+    if (!customer) nextErrors.customer = "Customer is required";
+    if (!pickup) nextErrors.pickup = "Pickup is required";
+    if (!dropoff) nextErrors.dropoff = "Drop-off is required";
+
+    setErrors(nextErrors);
+    if (Object.keys(nextErrors).length) return;
+
+    addJob({
+      customer,
+      pickup,
+      dropoff,
+      driver: form.driver.trim() || undefined,
+      status: form.status,
+      notes: form.notes.trim() || undefined,
+    });
 
     router.push("/jobs");
   }
@@ -59,7 +83,11 @@ export default function NewJobPage() {
         title="Create Job"
         subtitle="Add a new delivery job (MVP form)."
         action={
-          <Button variant="outlineDark" type="button" onClick={() => router.push("/jobs")}>
+          <Button
+            variant="outlineDark"
+            type="button"
+            onClick={() => router.push("/jobs")}
+          >
             Back
           </Button>
         }
@@ -83,8 +111,10 @@ export default function NewJobPage() {
                     value={form.customer}
                     onChange={(e) => update("customer", e.target.value)}
                     placeholder="ABC Trading"
-                    required
                   />
+                  {errors.customer ? (
+                    <div className="mt-1 text-xs text-red-600">{errors.customer}</div>
+                  ) : null}
                 </div>
               </div>
 
@@ -109,8 +139,10 @@ export default function NewJobPage() {
                   value={form.pickup}
                   onChange={(e) => update("pickup", e.target.value)}
                   placeholder="Tuas Warehouse A"
-                  required
                 />
+                {errors.pickup ? (
+                  <div className="mt-1 text-xs text-red-600">{errors.pickup}</div>
+                ) : null}
               </div>
             </div>
 
@@ -121,8 +153,10 @@ export default function NewJobPage() {
                   value={form.dropoff}
                   onChange={(e) => update("dropoff", e.target.value)}
                   placeholder="Changi Cargo Complex"
-                  required
                 />
+                {errors.dropoff ? (
+                  <div className="mt-1 text-xs text-red-600">{errors.dropoff}</div>
+                ) : null}
               </div>
             </div>
 
