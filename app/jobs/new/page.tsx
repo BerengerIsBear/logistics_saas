@@ -1,9 +1,9 @@
+// app/jobs/new/page.tsx
 "use client";
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-
-type JobStatus = "pending" | "assigned" | "in_transit" | "delivered";
+import { addJob, type JobStatus } from "@/lib/mockStore";
 
 type NewJob = {
   customer: string;
@@ -33,12 +33,19 @@ export default function NewJobPage() {
   function onSubmit(e: React.FormEvent) {
     e.preventDefault();
 
-    // MVP: just simulate "saved" and redirect back to jobs list.
-    // Later: replace with Supabase insert.
-    console.log("CREATE JOB:", form);
+    addJob({
+      customer: form.customer.trim(),
+      pickup: form.pickup.trim(),
+      dropoff: form.dropoff.trim(),
+      driver: form.driver.trim() || undefined,
+      status: form.status,
+    });
 
     router.push("/jobs");
   }
+
+  const inputClass =
+    "mt-1 w-full rounded-md border px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400";
 
   return (
     <main className="p-6">
@@ -61,13 +68,13 @@ export default function NewJobPage() {
 
       <form
         onSubmit={onSubmit}
-        className="mt-6 max-w-2xl space-y-5 rounded-lg border bg-white p-5"
+        className="mt-6 max-w-2xl space-y-5 rounded-lg border bg-white p-5 text-gray-800"
       >
         <div className="grid gap-4 sm:grid-cols-2">
           <div>
-            <label className="text-sm font-medium">Customer</label>
+            <label className="text-sm font-medium text-gray-700">Customer</label>
             <input
-              className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
+              className={inputClass}
               value={form.customer}
               onChange={(e) => update("customer", e.target.value)}
               placeholder="ABC Trading"
@@ -76,9 +83,11 @@ export default function NewJobPage() {
           </div>
 
           <div>
-            <label className="text-sm font-medium">Driver (optional)</label>
+            <label className="text-sm font-medium text-gray-700">
+              Driver (optional)
+            </label>
             <input
-              className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
+              className={inputClass}
               value={form.driver}
               onChange={(e) => update("driver", e.target.value)}
               placeholder="Ahmad"
@@ -87,9 +96,9 @@ export default function NewJobPage() {
         </div>
 
         <div>
-          <label className="text-sm font-medium">Pickup</label>
+          <label className="text-sm font-medium text-gray-700">Pickup</label>
           <input
-            className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
+            className={inputClass}
             value={form.pickup}
             onChange={(e) => update("pickup", e.target.value)}
             placeholder="Tuas Warehouse A"
@@ -98,9 +107,9 @@ export default function NewJobPage() {
         </div>
 
         <div>
-          <label className="text-sm font-medium">Drop-off</label>
+          <label className="text-sm font-medium text-gray-700">Drop-off</label>
           <input
-            className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
+            className={inputClass}
             value={form.dropoff}
             onChange={(e) => update("dropoff", e.target.value)}
             placeholder="Changi Cargo Complex"
@@ -110,9 +119,9 @@ export default function NewJobPage() {
 
         <div className="grid gap-4 sm:grid-cols-2">
           <div>
-            <label className="text-sm font-medium">Status</label>
+            <label className="text-sm font-medium text-gray-700">Status</label>
             <select
-              className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
+              className="mt-1 w-full rounded-md border px-3 py-2 text-sm text-gray-900"
               value={form.status}
               onChange={(e) => update("status", e.target.value as JobStatus)}
             >
@@ -124,9 +133,11 @@ export default function NewJobPage() {
           </div>
 
           <div>
-            <label className="text-sm font-medium">Notes (optional)</label>
+            <label className="text-sm font-medium text-gray-700">
+              Notes (optional)
+            </label>
             <input
-              className="mt-1 w-full rounded-md border px-3 py-2 text-sm"
+              className={inputClass}
               value={form.notes}
               onChange={(e) => update("notes", e.target.value)}
               placeholder="Fragile / call before arrival"
@@ -143,8 +154,7 @@ export default function NewJobPage() {
           </button>
 
           <span className="text-xs text-gray-500">
-            (For now it logs to console and redirects. We’ll connect Supabase
-            later.)
+            (Now it saves into mock store and redirects. Supabase later.)
           </span>
         </div>
       </form>

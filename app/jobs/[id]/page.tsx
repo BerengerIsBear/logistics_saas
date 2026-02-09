@@ -1,52 +1,13 @@
+// app/jobs/[id]/page.tsx
 "use client";
 
 import { use, useMemo, useState } from "react";
 import Link from "next/link";
-
-type JobStatus = "pending" | "assigned" | "in_transit" | "delivered";
-
-type Job = {
-  id: string;
-  customer: string;
-  pickup: string;
-  dropoff: string;
-  driver?: string;
-  status: JobStatus;
-};
-
-const mockJobs: Job[] = [
-  {
-    id: "JOB-1001",
-    customer: "ABC Trading",
-    pickup: "Tuas Warehouse A",
-    dropoff: "Changi Cargo Complex",
-    driver: "Ahmad",
-    status: "assigned",
-  },
-  {
-    id: "JOB-1002",
-    customer: "Lion Logistics",
-    pickup: "Jurong Port",
-    dropoff: "Sengkang",
-    driver: "Ben",
-    status: "in_transit",
-  },
-  {
-    id: "JOB-1003",
-    customer: "Evergreen Supplies",
-    pickup: "Woodlands",
-    dropoff: "Tampines",
-    status: "pending",
-  },
-  {
-    id: "JOB-1004",
-    customer: "Kopi Bean Co.",
-    pickup: "Ubi",
-    dropoff: "CBD",
-    driver: "Siti",
-    status: "delivered",
-  },
-];
+import {
+  getJobById,
+  updateJobStatus,
+  type JobStatus,
+} from "@/lib/mockStore";
 
 function labelStatus(s: JobStatus) {
   switch (s) {
@@ -68,9 +29,10 @@ export default function JobDetailsPage({
 }) {
   const { id } = use(params);
 
-  const job = useMemo(() => mockJobs.find((j) => j.id === id), [id]);
+  const job = useMemo(() => getJobById(id), [id]);
 
   const [status, setStatus] = useState<JobStatus>(job?.status ?? "pending");
+  const [savedMsg, setSavedMsg] = useState("");
 
   if (!job) {
     return (
@@ -87,6 +49,17 @@ export default function JobDetailsPage({
       </main>
     );
   }
+
+  function onSave() {
+    if (!job) return;
+
+    updateJobStatus(job.id, status);
+    setSavedMsg("Saved!");
+    setTimeout(() => setSavedMsg(""), 1200);
+  }
+
+  const labelClass = "text-xs text-gray-500";
+  const valueClass = "mt-1 font-medium text-gray-900";
 
   return (
     <main className="p-6">
@@ -108,32 +81,38 @@ export default function JobDetailsPage({
 
       <div className="mt-6 grid gap-6 lg:grid-cols-3">
         {/* Job Info */}
-        <section className="lg:col-span-2 rounded-lg border bg-white p-5">
-          <h2 className="text-sm font-semibold text-gray-700">Job Info</h2>
+        <section className="lg:col-span-2 rounded-lg border bg-white p-5 text-gray-800">
+          <h2 className="text-sm font-semibold text-gray-900">Job Info</h2>
 
           <div className="mt-4 grid gap-4 sm:grid-cols-2">
             <div>
-              <div className="text-xs text-gray-500">Pickup</div>
-              <div className="mt-1 font-medium">{job.pickup}</div>
+              <div className={labelClass}>Pickup</div>
+              <div className={valueClass}>{job.pickup}</div>
             </div>
+
             <div>
-              <div className="text-xs text-gray-500">Drop-off</div>
-              <div className="mt-1 font-medium">{job.dropoff}</div>
+              <div className={labelClass}>Drop-off</div>
+              <div className={valueClass}>{job.dropoff}</div>
             </div>
+
             <div>
-              <div className="text-xs text-gray-500">Driver</div>
-              <div className="mt-1 font-medium">{job.driver ?? "-"}</div>
+              <div className={labelClass}>Driver</div>
+              <div className={valueClass}>{job.driver ?? "-"}</div>
             </div>
+
             <div>
-              <div className="text-xs text-gray-500">Status</div>
-              <div className="mt-1 font-medium">{labelStatus(status)}</div>
+              <div className={labelClass}>Status</div>
+              <div className={valueClass}>{labelStatus(status)}</div>
             </div>
           </div>
 
-          <div className="mt-6 flex items-center gap-3">
-            <label className="text-sm font-medium">Update status</label>
+          <div className="mt-6 flex flex-wrap items-center gap-3">
+            <label className="text-sm font-medium text-gray-700">
+              Update status
+            </label>
+
             <select
-              className="rounded-md border px-3 py-2 text-sm"
+              className="rounded-md border px-3 py-2 text-sm text-gray-900"
               value={status}
               onChange={(e) => setStatus(e.target.value as JobStatus)}
             >
@@ -144,33 +123,35 @@ export default function JobDetailsPage({
             </select>
 
             <button
-              onClick={() => console.log("SAVE STATUS", job.id, status)}
+              onClick={onSave}
               className="rounded-md bg-black px-4 py-2 text-sm font-medium text-white hover:opacity-90"
             >
               Save
             </button>
+
+            {savedMsg && <span className="text-sm text-gray-700">{savedMsg}</span>}
           </div>
 
           <p className="mt-2 text-xs text-gray-500">
-            (MVP: Save just logs to console. Later we’ll save to Supabase.)
+            (MVP: Save updates the mock store only. Later we’ll save to Supabase.)
           </p>
         </section>
 
         {/* POD Upload placeholder */}
-        <section className="rounded-lg border bg-white p-5">
-          <h2 className="text-sm font-semibold text-gray-700">
+        <section className="rounded-lg border bg-white p-5 text-gray-800">
+          <h2 className="text-sm font-semibold text-gray-900">
             Proof of Delivery
           </h2>
 
-          <div className="mt-4 rounded-lg border-2 border-dashed p-6 text-center">
-            <div className="text-sm font-medium">Upload POD</div>
-            <p className="mt-1 text-xs text-gray-500">
+          <div className="mt-4 rounded-lg border-2 border-dashed border-gray-200 p-6 text-center">
+            <div className="text-sm font-medium text-gray-900">Upload POD</div>
+            <p className="mt-1 text-xs text-gray-600">
               Photo / signature will go here.
             </p>
 
             <button
               onClick={() => alert("POD upload coming next")}
-              className="mt-4 rounded-md border px-4 py-2 text-sm font-medium hover:bg-gray-50"
+              className="mt-4 rounded-md border px-4 py-2 text-sm font-medium text-gray-800 hover:bg-gray-50"
             >
               Choose File
             </button>

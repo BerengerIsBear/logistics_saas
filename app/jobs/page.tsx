@@ -1,14 +1,9 @@
-import Link from "next/link";
-type JobStatus = "pending" | "assigned" | "in_transit" | "delivered";
+// app/jobs/page.tsx
+"use client";
 
-type Job = {
-  id: string;
-  customer: string;
-  pickup: string;
-  dropoff: string;
-  driver?: string;
-  status: JobStatus;
-};
+import Link from "next/link";
+import { useSyncExternalStore } from "react";
+import { getJobs, subscribe, type JobStatus } from "@/lib/mockStore";
 
 const STATUS_LABEL: Record<JobStatus, string> = {
   pending: "Pending",
@@ -24,40 +19,6 @@ const STATUS_CLASS: Record<JobStatus, string> = {
   delivered: "bg-green-100 text-green-800",
 };
 
-const mockJobs: Job[] = [
-  {
-    id: "JOB-1001",
-    customer: "ABC Trading",
-    pickup: "Tuas Warehouse A",
-    dropoff: "Changi Cargo Complex",
-    driver: "Ahmad",
-    status: "assigned",
-  },
-  {
-    id: "JOB-1002",
-    customer: "Lion Logistics",
-    pickup: "Jurong Port",
-    dropoff: "Sengkang",
-    driver: "Ben",
-    status: "in_transit",
-  },
-  {
-    id: "JOB-1003",
-    customer: "Evergreen Supplies",
-    pickup: "Woodlands",
-    dropoff: "Tampines",
-    status: "pending",
-  },
-  {
-    id: "JOB-1004",
-    customer: "Kopi Bean Co.",
-    pickup: "Ubi",
-    dropoff: "CBD",
-    driver: "Siti",
-    status: "delivered",
-  },
-];
-
 function StatusBadge({ status }: { status: JobStatus }) {
   return (
     <span
@@ -69,6 +30,8 @@ function StatusBadge({ status }: { status: JobStatus }) {
 }
 
 export default function JobsPage() {
+  const jobs = useSyncExternalStore(subscribe, getJobs, getJobs);
+
   return (
     <main className="p-6">
       <div className="flex items-start justify-between gap-4">
@@ -79,18 +42,18 @@ export default function JobsPage() {
           </p>
         </div>
 
-        <a
-        href="/jobs/new"
-        className="rounded-md bg-black px-4 py-2 text-sm font-medium text-white hover:opacity-90"
+        {/* Create Job – white primary button */}
+        <Link
+          href="/jobs/new"
+          className="rounded-md border px-4 py-2 text-sm font-medium hover:bg-gray-50"
         >
-        + Create Job
-        </a>
-
+          + Create Job
+        </Link>
       </div>
 
-      <div className="mt-6 overflow-hidden rounded-lg border bg-white">
+      <div className="mt-6 overflow-hidden rounded-lg border bg-white text-gray-700">
         <table className="w-full text-sm">
-          <thead className="bg-gray-50 text-left text-xs font-semibold uppercase tracking-wide text-gray-600">
+          <thead className="bg-gray-100 text-left text-xs font-semibold uppercase tracking-wide text-gray-600 border-b border-gray-200">
             <tr>
               <th className="px-4 py-3">Job ID</th>
               <th className="px-4 py-3">Customer</th>
@@ -100,14 +63,17 @@ export default function JobsPage() {
               <th className="px-4 py-3">Status</th>
             </tr>
           </thead>
-          <tbody className="divide-y">
-            {mockJobs.map((job) => (
+
+          <tbody className="divide-y text-gray-600">
+            {jobs.map((job) => (
               <tr key={job.id} className="hover:bg-gray-50">
-                
                 <td className="px-4 py-3 font-medium">
-                <Link className="hover:underline" href={`/jobs/${job.id}`}>
+                  <Link
+                    href={`/jobs/${job.id}`}
+                    className="text-gray-700 hover:text-gray-900 hover:underline"
+                  >
                     {job.id}
-                </Link>
+                  </Link>
                 </td>
 
                 <td className="px-4 py-3">{job.customer}</td>
@@ -119,6 +85,14 @@ export default function JobsPage() {
                 </td>
               </tr>
             ))}
+
+            {jobs.length === 0 && (
+              <tr>
+                <td className="px-4 py-6 text-sm text-gray-500" colSpan={6}>
+                  No jobs yet.
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
