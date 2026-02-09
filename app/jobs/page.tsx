@@ -1,3 +1,4 @@
+import Link from "next/link";
 type JobStatus = "pending" | "assigned" | "in_transit" | "delivered";
 
 type Job = {
@@ -102,7 +103,13 @@ export default function JobsPage() {
           <tbody className="divide-y">
             {mockJobs.map((job) => (
               <tr key={job.id} className="hover:bg-gray-50">
-                <td className="px-4 py-3 font-medium">{job.id}</td>
+                
+                <td className="px-4 py-3 font-medium">
+                <Link className="hover:underline" href={`/jobs/${job.id}`}>
+                    {job.id}
+                </Link>
+                </td>
+
                 <td className="px-4 py-3">{job.customer}</td>
                 <td className="px-4 py-3">{job.pickup}</td>
                 <td className="px-4 py-3">{job.dropoff}</td>
