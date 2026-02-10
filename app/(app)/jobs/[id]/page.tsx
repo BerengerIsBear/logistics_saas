@@ -3,7 +3,7 @@
 
 import { use, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
-import { getJobs, subscribe, updateJobStatus, type JobStatus } from "@/lib/mockStore";
+import { getJobs, subscribe, hydrateJobsFromSupabase, type JobStatus } from "@/lib/mockStore";
 
 import { PageShell } from "@/components/PageShell";
 import { PageHeader } from "@/components/PageHeader";
@@ -22,6 +22,9 @@ type PodRow = {
   created_at: string;
   signedUrl: string | null;
 };
+
+type Driver = { id: string; name: string; phone?: string | null };
+type Vehicle = { id: string; plate_no: string; type?: string | null };
 
 function formatBytes(bytes: number) {
   if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
@@ -44,6 +47,15 @@ export default function JobDetailsPage({
 
   const [status, setStatus] = useState<JobStatus>(job?.status ?? "pending");
   const [savedMsg, setSavedMsg] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  // Assignments
+  const [drivers, setDrivers] = useState<Driver[]>([]);
+  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  const [driverId, setDriverId] = useState("");
+  const [vehicleId, setVehicleId] = useState("");
+  const [assigning, setAssigning] = useState(false);
+  const [assignError, setAssignError] = useState("");
 
   // POD (Supabase via API route, private bucket w/ signed URLs)
   const [pods, setPods] = useState<PodRow[]>([]);
@@ -57,6 +69,22 @@ export default function JobDetailsPage({
   useEffect(() => {
     if (job) setStatus(job.status);
   }, [job?.status]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // load drivers + vehicles for dropdowns
+  useEffect(() => {
+    (async () => {
+      try {
+        const [dRes, vRes] = await Promise.all([fetch("/api/drivers"), fetch("/api/vehicles")]);
+        const dJson = await dRes.json();
+        const vJson = await vRes.json();
+
+        if (dRes.ok) setDrivers((dJson?.drivers ?? []) as Driver[]);
+        if (vRes.ok) setVehicles((vJson?.vehicles ?? []) as Vehicle[]);
+      } catch {
+        // keep silent (UI still works without assignment)
+      }
+    })();
+  }, []);
 
   async function loadPods() {
     setPodError("");
@@ -94,10 +122,67 @@ export default function JobDetailsPage({
     );
   }
 
-  function onSave() {
-    updateJobStatus(id, status);
-    setSavedMsg("Saved!");
-    setTimeout(() => setSavedMsg(""), 1200);
+  async function onSave() {
+    setSavedMsg("");
+    setSaving(true);
+
+    try {
+      const res = await fetch(`/api/jobs/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status }),
+      });
+
+      const json = await res.json();
+
+      if (res.status === 401) {
+        setSavedMsg("Session expired. Please login again.");
+        return;
+      }
+
+      if (!res.ok) {
+        throw new Error(json?.error || "Failed to save status");
+      }
+
+      await hydrateJobsFromSupabase();
+
+      setSavedMsg("Saved!");
+      setTimeout(() => setSavedMsg(""), 1200);
+    } catch (e: any) {
+      setSavedMsg(e?.message || "Failed to save");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function onAssign() {
+    setAssignError("");
+    setSavedMsg("");
+    setAssigning(true);
+
+    try {
+      const res = await fetch(`/api/jobs/${encodeURIComponent(id)}/assign`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ driverId, vehicleId }),
+      });
+
+      const json = await res.json();
+      if (res.status === 401) {
+        setAssignError("Session expired. Please login again.");
+        return;
+      }
+      if (!res.ok) throw new Error(json?.error || "Assign failed");
+
+      await hydrateJobsFromSupabase();
+
+      setSavedMsg("Assigned!");
+      setTimeout(() => setSavedMsg(""), 1200);
+    } catch (e: any) {
+      setAssignError(e?.message || "Assign failed");
+    } finally {
+      setAssigning(false);
+    }
   }
 
   function openPicker() {
@@ -196,6 +281,11 @@ export default function JobDetailsPage({
               </div>
 
               <div>
+                <div className="text-xs text-neutral-500">Vehicle</div>
+                <div className="mt-1 font-medium text-neutral-900">{job.vehicle ?? "-"}</div>
+              </div>
+
+              <div>
                 <div className="text-xs text-neutral-500">Status</div>
                 <div className="mt-1 font-medium text-neutral-900">
                   {status === "in_transit"
@@ -212,6 +302,53 @@ export default function JobDetailsPage({
               </div>
             ) : null}
 
+            {/* Assign driver + vehicle */}
+            <div className="mt-6 flex flex-wrap items-center gap-3">
+              <div className="text-sm font-medium text-neutral-700">Assign</div>
+
+              <div className="min-w-[220px]">
+                <select
+                  className="w-full rounded-md border bg-white px-3 py-2 text-sm text-black"
+                  value={driverId}
+                  onChange={(e) => setDriverId(e.target.value)}
+                >
+                  <option value="">Select driver</option>
+                  {drivers.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="min-w-[220px]">
+                <select
+                  className="w-full rounded-md border bg-white px-3 py-2 text-sm text-black"
+                  value={vehicleId}
+                  onChange={(e) => setVehicleId(e.target.value)}
+                >
+                  <option value="">Select vehicle</option>
+                  {vehicles.map((v) => (
+                    <option key={v.id} value={v.id}>
+                      {v.plate_no}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <Button
+                variant="outline"
+                type="button"
+                onClick={onAssign}
+                disabled={assigning || !driverId || !vehicleId}
+              >
+                {assigning ? "Assigning..." : "Assign"}
+              </Button>
+
+              {assignError ? <span className="text-sm text-red-600">{assignError}</span> : null}
+            </div>
+
+            {/* Update status */}
             <div className="mt-6 flex flex-wrap items-center gap-3">
               <div className="text-sm font-medium text-neutral-700">Update status</div>
 
@@ -224,15 +361,15 @@ export default function JobDetailsPage({
                 </Select>
               </div>
 
-              <Button variant="primary" type="button" onClick={onSave}>
-                Save
+              <Button variant="primary" type="button" onClick={onSave} disabled={saving}>
+                {saving ? "Saving..." : "Save"}
               </Button>
 
               {savedMsg ? <span className="text-sm text-neutral-700">{savedMsg}</span> : null}
             </div>
 
             <p className="mt-3 text-xs text-neutral-500">
-              (MVP: Save updates the mock store only. Later we’ll save to Supabase.)
+              (Now: Save writes to Supabase via PATCH, Assign writes via PATCH /assign, then refreshes store.)
             </p>
           </CardContent>
         </Card>
@@ -258,9 +395,7 @@ export default function JobDetailsPage({
 
             <div className="rounded-xl border-2 border-dashed border-neutral-200 p-6 text-center">
               <div className="text-sm font-medium text-neutral-900">Upload POD</div>
-              <p className="mt-1 text-xs text-neutral-500">
-                Images preview. PDFs open in a new tab.
-              </p>
+              <p className="mt-1 text-xs text-neutral-500">Images preview. PDFs open in a new tab.</p>
 
               <div className="mt-4 flex justify-center gap-2">
                 <Button variant="outline" type="button" onClick={openPicker} disabled={uploading}>

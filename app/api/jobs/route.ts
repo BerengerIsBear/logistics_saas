@@ -56,15 +56,21 @@ export async function GET() {
     return NextResponse.json({ error: "No company profile" }, { status: 403 });
   }
 
-  const { data, error } = await admin
+  const { data: rows, error } = await admin
     .from("jobs")
-    .select("*")
+    .select(
+      `
+        *,
+        drivers(name),
+        vehicles(plate_no)
+      `
+    )
     .eq("company_id", companyId)
     .order("created_at", { ascending: false });
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  return NextResponse.json({ jobs: data ?? [] });
+  return NextResponse.json({ jobs: rows ?? [] });
 }
 
 // ✅ POST: create job for current user company
@@ -110,7 +116,7 @@ export async function POST(req: Request) {
       customer,
       pickup,
       dropoff,
-      driver: driver || null,
+      driver: driver || null, // (legacy field - ok to keep for now)
       status,
       notes: notes || null,
     })

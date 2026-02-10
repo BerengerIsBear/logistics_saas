@@ -7,6 +7,7 @@ export type Job = {
   pickup: string;
   dropoff: string;
   driver?: string;
+  vehicle?: string; // NEW: e.g. plate no
   status: JobStatus;
   notes?: string;
   createdAt: number;
@@ -57,16 +58,32 @@ export async function hydrateJobsFromSupabase() {
 
   const rows = (json?.jobs ?? []) as any[];
 
-  jobs = rows.map((j: any) => ({
-    id: j.job_number ?? String(j.id),
-    customer: j.customer,
-    pickup: j.pickup,
-    dropoff: j.dropoff,
-    driver: j.driver ?? undefined,
-    status: (j.status as JobStatus) ?? "pending",
-    notes: j.notes ?? undefined,
-    createdAt: j.created_at ? new Date(j.created_at).getTime() : Date.now(),
-  }));
+  jobs = rows.map((j: any) => {
+    // Support BOTH styles:
+    // 1) legacy: j.driver string
+    // 2) joined: j.drivers.name + j.vehicles.plate_no
+    const driverName =
+      j?.drivers?.name ?? // joined relation
+      j?.driver ?? // legacy
+      undefined;
+
+    const vehiclePlate =
+      j?.vehicles?.plate_no ?? // joined relation
+      j?.vehicle ?? // (in case you later return it directly)
+      undefined;
+
+    return {
+      id: j.job_number ?? String(j.id),
+      customer: j.customer,
+      pickup: j.pickup,
+      dropoff: j.dropoff,
+      driver: driverName ?? undefined,
+      vehicle: vehiclePlate ?? undefined,
+      status: (j.status as JobStatus) ?? "pending",
+      notes: j.notes ?? undefined,
+      createdAt: j.created_at ? new Date(j.created_at).getTime() : Date.now(),
+    };
+  });
 
   emit();
 }
@@ -88,6 +105,7 @@ export function addJob(input: NewJobInput) {
     pickup: input.pickup,
     dropoff: input.dropoff,
     driver: input.driver || undefined,
+    vehicle: undefined,
     status: input.status,
     notes: input.notes || undefined,
     createdAt: Date.now(),
