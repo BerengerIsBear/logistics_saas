@@ -2,8 +2,13 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState, useSyncExternalStore } from "react";
-import { getJobs, subscribe, type JobStatus } from "@/lib/mockStore";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import {
+  getJobs,
+  subscribe,
+  hydrateJobsFromSupabase,
+  type JobStatus,
+} from "@/lib/mockStore";
 
 import { PageShell } from "@/components/PageShell";
 import { PageHeader } from "@/components/PageHeader";
@@ -23,6 +28,46 @@ export default function JobsPage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [sort, setSort] = useState<SortMode>("newest");
 
+  const [loading, setLoading] = useState(false);
+  const [loadErr, setLoadErr] = useState("");
+
+  async function loadJobs() {
+    setLoading(true);
+    setLoadErr("");
+
+    try {
+      const meRes = await fetch("/api/me/company", { cache: "no-store" });
+      const meJson = await meRes.json();
+
+      if (!meRes.ok) {
+        throw new Error(meJson?.error || "Failed to load company");
+      }
+
+      const companyId = meJson.companyId as string;
+      if (!companyId) throw new Error("Missing companyId");
+
+      await hydrateJobsFromSupabase();
+    } catch (e: any) {
+      setLoadErr(e?.message || "Failed to load jobs");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // Hydrate from Supabase once (Option A bridge)
+  useEffect(() => {
+    let alive = true;
+
+    (async () => {
+      if (!alive) return;
+      await loadJobs();
+    })();
+
+    return () => {
+      alive = false;
+    };
+  }, []);
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
 
@@ -40,7 +85,6 @@ export default function JobsPage() {
       rows = rows.filter((j) => j.status === statusFilter);
     }
 
-    // Sort by createdAt if present; otherwise keep stable order.
     const getTime = (j: any) =>
       typeof j.createdAt === "number"
         ? j.createdAt
@@ -100,10 +144,21 @@ export default function JobsPage() {
             </div>
           </div>
 
-          <div className="mt-2 text-xs text-neutral-500">
-            Showing{" "}
-            <span className="font-medium text-neutral-800">{filtered.length}</span> of{" "}
-            <span className="font-medium text-neutral-800">{jobs.length}</span>
+          <div className="mt-2 flex items-center justify-between gap-3 text-xs text-neutral-500">
+            <div>
+              Showing{" "}
+              <span className="font-medium text-neutral-800">{filtered.length}</span> of{" "}
+              <span className="font-medium text-neutral-800">{jobs.length}</span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              {loading ? <span>Loading...</span> : null}
+              {loadErr ? <span className="text-red-600">{loadErr}</span> : null}
+
+              <Button variant="outlineDark" type="button" onClick={loadJobs}>
+                Refresh
+              </Button>
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -145,7 +200,7 @@ export default function JobsPage() {
                   </tr>
                 ))}
 
-                {jobs.length === 0 && (
+                {jobs.length === 0 && !loading && !loadErr && (
                   <tr>
                     <td colSpan={6} className="px-6 py-10 text-center">
                       <div className="text-sm text-neutral-500">No jobs yet.</div>
@@ -181,6 +236,19 @@ export default function JobsPage() {
                         <Link href="/jobs/new">
                           <Button variant="primary">Create job</Button>
                         </Link>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+
+                {loadErr && (
+                  <tr>
+                    <td colSpan={6} className="px-6 py-10 text-center">
+                      <div className="text-sm text-red-600">{loadErr}</div>
+                      <div className="mt-3">
+                        <Button variant="outlineDark" type="button" onClick={loadJobs}>
+                          Retry
+                        </Button>
                       </div>
                     </td>
                   </tr>

@@ -2,14 +2,14 @@
 export type JobStatus = "pending" | "assigned" | "in_transit" | "delivered";
 
 export type Job = {
-  id: string; // e.g. JOB-1001
+  id: string; // UI uses job_number (e.g. JOB-1001)
   customer: string;
   pickup: string;
   dropoff: string;
   driver?: string;
   status: JobStatus;
   notes?: string;
-  createdAt: number; // for sorting later
+  createdAt: number;
 };
 
 type NewJobInput = {
@@ -21,26 +21,8 @@ type NewJobInput = {
   notes?: string;
 };
 
-let jobs: Job[] = [
-  {
-    id: "JOB-1001",
-    customer: "ABC Trading",
-    pickup: "Tuas Warehouse A",
-    dropoff: "Changi Cargo Complex",
-    driver: "Ahmad",
-    status: "assigned",
-    createdAt: Date.now() - 1000 * 60 * 60 * 24 * 2,
-  },
-  {
-    id: "JOB-1002",
-    customer: "Lion Logistics",
-    pickup: "Jurong Port",
-    dropoff: "Sengkang",
-    driver: "Ben",
-    status: "in_transit",
-    createdAt: Date.now() - 1000 * 60 * 60 * 24,
-  },
-];
+// Start empty. Hydrate from Supabase via API.
+let jobs: Job[] = [];
 
 const listeners = new Set<() => void>();
 
@@ -61,9 +43,39 @@ export function getJobById(id: string) {
   return jobs.find((j) => j.id === id);
 }
 
+/**
+ * Option A bridge (client-safe):
+ * Fetch from our Next.js API route (server talks to Supabase using service role)
+ */
+export async function hydrateJobsFromSupabase() {
+  const res = await fetch("/api/jobs", { cache: "no-store" });
+  const json = await res.json();
+
+  if (!res.ok) {
+    throw new Error(json?.error || "Failed to load jobs");
+  }
+
+  const rows = (json?.jobs ?? []) as any[];
+
+  jobs = rows.map((j: any) => ({
+    id: j.job_number ?? String(j.id),
+    customer: j.customer,
+    pickup: j.pickup,
+    dropoff: j.dropoff,
+    driver: j.driver ?? undefined,
+    status: (j.status as JobStatus) ?? "pending",
+    notes: j.notes ?? undefined,
+    createdAt: j.created_at ? new Date(j.created_at).getTime() : Date.now(),
+  }));
+
+  emit();
+}
+
+// --- keep these for now (fallback / local actions) ---
+
 function nextJobId() {
   const nums = jobs
-    .map((j) => Number(j.id.replace("JOB-", "")))
+    .map((j) => Number(String(j.id).replace("JOB-", "")))
     .filter((n) => Number.isFinite(n));
   const max = nums.length ? Math.max(...nums) : 1000;
   return `JOB-${max + 1}`;
@@ -81,7 +93,7 @@ export function addJob(input: NewJobInput) {
     createdAt: Date.now(),
   };
 
-  jobs = [job, ...jobs]; // newest first (nice default)
+  jobs = [job, ...jobs];
   emit();
   return job;
 }

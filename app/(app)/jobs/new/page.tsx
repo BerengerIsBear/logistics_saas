@@ -3,7 +3,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { addJob, type JobStatus } from "@/lib/mockStore";
+import type { JobStatus } from "@/lib/mockStore";
 
 import { PageShell } from "@/components/PageShell";
 import { PageHeader } from "@/components/PageHeader";
@@ -25,6 +25,7 @@ type Errors = {
   customer?: string;
   pickup?: string;
   dropoff?: string;
+  form?: string;
 };
 
 export default function NewJobPage() {
@@ -40,18 +41,20 @@ export default function NewJobPage() {
   });
 
   const [errors, setErrors] = useState<Errors>({});
+  const [saving, setSaving] = useState(false);
 
   function update<K extends keyof NewJob>(key: K, value: NewJob[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
 
     // clear error as user edits
     if (key === "customer" || key === "pickup" || key === "dropoff") {
-      setErrors((prev) => ({ ...prev, [key]: undefined }));
+      setErrors((prev) => ({ ...prev, [key]: undefined, form: undefined }));
     }
   }
 
-  function onSubmit(e: React.FormEvent) {
+  async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (saving) return;
 
     const customer = form.customer.trim();
     const pickup = form.pickup.trim();
@@ -65,23 +68,44 @@ export default function NewJobPage() {
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length) return;
 
-    addJob({
-      customer,
-      pickup,
-      dropoff,
-      driver: form.driver.trim() || undefined,
-      status: form.status,
-      notes: form.notes.trim() || undefined,
-    });
+    setSaving(true);
+    setErrors((p) => ({ ...p, form: undefined }));
 
-    router.push("/jobs");
+    try {
+      const res = await fetch("/api/jobs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          customer,
+          pickup,
+          dropoff,
+          driver: form.driver.trim() || undefined,
+          status: form.status,
+          notes: form.notes.trim() || undefined,
+        }),
+      });
+
+      const json = await res.json();
+
+      if (!res.ok) {
+        setErrors((p) => ({ ...p, form: json?.error || "Failed to create job" }));
+        return;
+      }
+
+      // back to list (list will hydrate from Supabase)
+      router.push("/jobs");
+    } catch (err: any) {
+      setErrors((p) => ({ ...p, form: err?.message || "Network error" }));
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
     <PageShell>
       <PageHeader
         title="Create Job"
-        subtitle="Add a new delivery job (MVP form)."
+        subtitle="Add a new delivery job."
         action={
           <Button
             variant="outlineDark"
@@ -111,6 +135,7 @@ export default function NewJobPage() {
                     value={form.customer}
                     onChange={(e) => update("customer", e.target.value)}
                     placeholder="ABC Trading"
+                    disabled={saving}
                   />
                   {errors.customer ? (
                     <div className="mt-1 text-xs text-red-600">{errors.customer}</div>
@@ -127,6 +152,7 @@ export default function NewJobPage() {
                     value={form.driver}
                     onChange={(e) => update("driver", e.target.value)}
                     placeholder="Ahmad"
+                    disabled={saving}
                   />
                 </div>
               </div>
@@ -139,6 +165,7 @@ export default function NewJobPage() {
                   value={form.pickup}
                   onChange={(e) => update("pickup", e.target.value)}
                   placeholder="Tuas Warehouse A"
+                  disabled={saving}
                 />
                 {errors.pickup ? (
                   <div className="mt-1 text-xs text-red-600">{errors.pickup}</div>
@@ -153,6 +180,7 @@ export default function NewJobPage() {
                   value={form.dropoff}
                   onChange={(e) => update("dropoff", e.target.value)}
                   placeholder="Changi Cargo Complex"
+                  disabled={saving}
                 />
                 {errors.dropoff ? (
                   <div className="mt-1 text-xs text-red-600">{errors.dropoff}</div>
@@ -167,6 +195,7 @@ export default function NewJobPage() {
                   <Select
                     value={form.status}
                     onChange={(e) => update("status", e.target.value as JobStatus)}
+                    disabled={saving}
                   >
                     <option value="pending">Pending</option>
                     <option value="assigned">Assigned</option>
@@ -185,18 +214,25 @@ export default function NewJobPage() {
                     value={form.notes}
                     onChange={(e) => update("notes", e.target.value)}
                     placeholder="Fragile / call before arrival"
+                    disabled={saving}
                   />
                 </div>
               </div>
             </div>
 
+            {errors.form ? (
+              <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                {errors.form}
+              </div>
+            ) : null}
+
             <div className="flex items-center gap-3 pt-1">
-              <Button variant="primary" type="submit">
-                Save Job
+              <Button variant="primary" type="submit" disabled={saving}>
+                {saving ? "Saving..." : "Save Job"}
               </Button>
 
               <span className="text-xs text-neutral-500">
-                Saves into mock store and redirects. (Supabase later.)
+                Saves to Supabase and redirects.
               </span>
             </div>
           </form>
