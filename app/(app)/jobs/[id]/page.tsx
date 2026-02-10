@@ -12,13 +12,15 @@ import { Button } from "@/components/ui/Button";
 import { Select } from "@/components/ui/Select";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 
-type PodItem = {
+type PodRow = {
   id: string;
-  name: string;
-  type: string;
-  size: number;
-  url: string; // object URL
-  uploadedAt: number;
+  job_id: string;
+  file_name: string;
+  file_path: string;
+  mime_type: string | null;
+  size: number | null;
+  created_at: string;
+  signedUrl: string | null;
 };
 
 function formatBytes(bytes: number) {
@@ -43,8 +45,12 @@ export default function JobDetailsPage({
   const [status, setStatus] = useState<JobStatus>(job?.status ?? "pending");
   const [savedMsg, setSavedMsg] = useState("");
 
-  // POD (mock-only, in-memory)
-  const [pods, setPods] = useState<PodItem[]>([]);
+  // POD (Supabase via API route, private bucket w/ signed URLs)
+  const [pods, setPods] = useState<PodRow[]>([]);
+  const [podLoading, setPodLoading] = useState(false);
+  const [podError, setPodError] = useState<string>("");
+  const [uploading, setUploading] = useState(false);
+
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   // keep local status in sync if store changes
@@ -52,13 +58,25 @@ export default function JobDetailsPage({
     if (job) setStatus(job.status);
   }, [job?.status]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // cleanup object URLs on unmount
+  async function loadPods() {
+    setPodError("");
+    setPodLoading(true);
+    try {
+      const res = await fetch(`/api/pod?jobId=${encodeURIComponent(id)}`, { cache: "no-store" });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error || "Failed to load POD");
+      setPods(json.items || []);
+    } catch (e: any) {
+      setPodError(e?.message || "Failed to load POD");
+    } finally {
+      setPodLoading(false);
+    }
+  }
+
   useEffect(() => {
-    return () => {
-      pods.forEach((p) => URL.revokeObjectURL(p.url));
-    };
+    loadPods();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [id]);
 
   if (!job) {
     return (
@@ -86,34 +104,51 @@ export default function JobDetailsPage({
     fileInputRef.current?.click();
   }
 
-  function onPickFiles(e: React.ChangeEvent<HTMLInputElement>) {
+  async function onPickFiles(e: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files ?? []);
     if (files.length === 0) return;
 
-    const next: PodItem[] = files.map((file) => {
-      const url = URL.createObjectURL(file);
-      return {
-        id: crypto.randomUUID(),
-        name: file.name,
-        type: file.type || "application/octet-stream",
-        size: file.size,
-        url,
-        uploadedAt: Date.now(),
-      };
-    });
+    setPodError("");
+    setUploading(true);
 
-    setPods((prev) => [...next, ...prev]);
+    try {
+      for (const file of files) {
+        const fd = new FormData();
+        fd.append("jobId", id);
+        fd.append("file", file);
 
-    // allow picking same file again
-    e.target.value = "";
+        const res = await fetch("/api/pod", { method: "POST", body: fd });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json?.error || `Upload failed: ${file.name}`);
+
+        setPods((prev) => [json.item as PodRow, ...prev]);
+      }
+    } catch (e: any) {
+      setPodError(e?.message || "Upload failed");
+    } finally {
+      setUploading(false);
+      e.target.value = ""; // allow same file again
+    }
   }
 
-  function removePod(podId: string) {
-    setPods((prev) => {
-      const target = prev.find((p) => p.id === podId);
-      if (target) URL.revokeObjectURL(target.url);
-      return prev.filter((p) => p.id !== podId);
-    });
+  async function removePod(podId: string) {
+    setPodError("");
+
+    const prev = pods;
+    setPods((p) => p.filter((x) => x.id !== podId)); // optimistic
+
+    try {
+      const res = await fetch("/api/pod", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ podId }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error || "Delete failed");
+    } catch (e: any) {
+      setPods(prev); // rollback
+      setPodError(e?.message || "Delete failed");
+    }
   }
 
   return (
@@ -202,12 +237,12 @@ export default function JobDetailsPage({
           </CardContent>
         </Card>
 
-        {/* POD Upload (mock) */}
+        {/* POD Upload (private bucket via server API) */}
         <Card>
           <CardHeader>
             <div className="text-sm font-medium text-neutral-900">Proof of Delivery</div>
             <div className="mt-1 text-sm text-neutral-500">
-              Upload photo / signature / PDF (mock-only for now).
+              Private bucket. Served via signed URLs.
             </div>
           </CardHeader>
 
@@ -224,35 +259,43 @@ export default function JobDetailsPage({
             <div className="rounded-xl border-2 border-dashed border-neutral-200 p-6 text-center">
               <div className="text-sm font-medium text-neutral-900">Upload POD</div>
               <p className="mt-1 text-xs text-neutral-500">
-                Images show preview. PDFs show an open link.
+                Images preview. PDFs open in a new tab.
               </p>
 
-              <div className="mt-4">
-                <Button variant="outline" type="button" onClick={openPicker}>
-                  Choose File
+              <div className="mt-4 flex justify-center gap-2">
+                <Button variant="outline" type="button" onClick={openPicker} disabled={uploading}>
+                  {uploading ? "Uploading..." : "Choose File"}
+                </Button>
+
+                <Button variant="outline" type="button" onClick={loadPods} disabled={podLoading}>
+                  {podLoading ? "Refreshing..." : "Refresh"}
                 </Button>
               </div>
             </div>
 
-            {pods.length > 0 ? (
+            {podError ? <div className="mt-3 text-sm text-red-600">{podError}</div> : null}
+
+            {podLoading ? (
+              <div className="mt-4 text-xs text-neutral-500">Loading POD...</div>
+            ) : pods.length === 0 ? (
+              <div className="mt-4 text-xs text-neutral-500">No POD uploaded yet.</div>
+            ) : (
               <div className="mt-4 space-y-3">
                 {pods.map((p) => {
-                  const isImage = p.type.startsWith("image/");
-                  const isPdf = p.type === "application/pdf";
+                  const mime = p.mime_type || "";
+                  const isImage = mime.startsWith("image/");
+                  const isPdf = mime === "application/pdf";
 
                   return (
-                    <div
-                      key={p.id}
-                      className="rounded-xl border border-neutral-200 bg-white p-3"
-                    >
+                    <div key={p.id} className="rounded-xl border border-neutral-200 bg-white p-3">
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <div className="truncate text-sm font-medium text-neutral-900">
-                            {p.name}
+                            {p.file_name}
                           </div>
                           <div className="mt-1 text-xs text-neutral-500">
-                            {isPdf ? "PDF" : isImage ? "Image" : p.type || "File"} •{" "}
-                            {formatBytes(p.size)}
+                            {isPdf ? "PDF" : isImage ? "Image" : mime || "File"} •{" "}
+                            {formatBytes(p.size ?? 0)}
                           </div>
                         </div>
 
@@ -265,40 +308,47 @@ export default function JobDetailsPage({
                         </button>
                       </div>
 
-                      {isImage ? (
-                        <div className="mt-3 overflow-hidden rounded-lg border border-neutral-200">
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img src={p.url} alt={p.name} className="h-40 w-full object-cover" />
-                        </div>
-                      ) : isPdf ? (
-                        <div className="mt-3 text-sm">
-                          <a
-                            href={p.url}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="text-neutral-900 underline underline-offset-2"
-                          >
-                            Open PDF
-                          </a>
-                        </div>
+                      {p.signedUrl ? (
+                        isImage ? (
+                          <div className="mt-3 overflow-hidden rounded-lg border border-neutral-200">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={p.signedUrl}
+                              alt={p.file_name}
+                              className="h-40 w-full object-cover"
+                            />
+                          </div>
+                        ) : isPdf ? (
+                          <div className="mt-3 text-sm">
+                            <a
+                              href={p.signedUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-neutral-900 underline underline-offset-2"
+                            >
+                              Open PDF
+                            </a>
+                          </div>
+                        ) : (
+                          <div className="mt-3 text-sm">
+                            <a
+                              href={p.signedUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-neutral-900 underline underline-offset-2"
+                            >
+                              Open file
+                            </a>
+                          </div>
+                        )
                       ) : (
-                        <div className="mt-3 text-sm">
-                          <a
-                            href={p.url}
-                            download={p.name}
-                            className="text-neutral-900 underline underline-offset-2"
-                          >
-                            Download file
-                          </a>
+                        <div className="mt-3 text-xs text-neutral-500">
+                          Signed URL missing. Click Refresh.
                         </div>
                       )}
                     </div>
                   );
                 })}
-              </div>
-            ) : (
-              <div className="mt-4 text-xs text-neutral-500">
-                No POD uploaded yet.
               </div>
             )}
           </CardContent>
