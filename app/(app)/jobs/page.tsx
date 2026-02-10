@@ -1,4 +1,4 @@
-// app/jobs/page.tsx
+// app/(app)/jobs/page.tsx
 "use client";
 
 import Link from "next/link";

@@ -1,4 +1,4 @@
-// app/jobs/new/page.tsx
+// app/(app)/jobs/new/page.tsx
 "use client";
 
 import { useState } from "react";
