@@ -40,10 +40,12 @@ async function getCompanyId(userId: string) {
   return data.company_id as string;
 }
 
-function startOfTodayISO() {
+function todayYMD() {
   const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  return d.toISOString();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`; // "YYYY-MM-DD"
 }
 
 export async function GET(req: Request) {
@@ -70,18 +72,16 @@ export async function GET(req: Request) {
     )
     .eq("company_id", companyId)
     .eq("driver_id", driverId)
+    .order("scheduled_date", { ascending: true })
+    .order("window_start", { ascending: true })
     .order("created_at", { ascending: false });
 
-  // MVP definition:
-  // - today: jobs created today
-  // - upcoming: jobs created after today start
-  // (Later we add scheduled_date)
-  const todayStart = startOfTodayISO();
+  const today = todayYMD();
 
   if (scope === "today") {
-    q = q.gte("created_at", todayStart);
+    q = q.eq("scheduled_date", today);
   } else if (scope === "upcoming") {
-    q = q.lt("created_at", todayStart).neq("status", "delivered"); // basic "not done"
+    q = q.gt("scheduled_date", today).neq("status", "delivered");
   } else {
     return NextResponse.json({ error: "Invalid scope" }, { status: 400 });
   }

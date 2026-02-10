@@ -46,7 +46,7 @@ function nextJobNumberFromLatest(latest?: string | null) {
   return `JOB-${base + 1}`;
 }
 
-// ✅ GET: list jobs for current user company (client-safe via fetch)
+// ✅ GET: list jobs for current user company
 export async function GET() {
   const user = await getAuthedUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -73,7 +73,7 @@ export async function GET() {
   return NextResponse.json({ jobs: rows ?? [] });
 }
 
-// ✅ POST: create job for current user company
+// ✅ POST: create job (A+B: UI requires, API defaults)
 export async function POST(req: Request) {
   const user = await getAuthedUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -96,6 +96,13 @@ export async function POST(req: Request) {
   if (!pickup) return NextResponse.json({ error: "Pickup is required" }, { status: 400 });
   if (!dropoff) return NextResponse.json({ error: "Drop-off is required" }, { status: 400 });
 
+  // B) Server safety: default scheduled_date to today if missing
+  const scheduledDate =
+    String(body?.scheduled_date ?? "").trim() || new Date().toISOString().slice(0, 10);
+
+  const windowStart = String(body?.window_start ?? "").trim();
+  const windowEnd = String(body?.window_end ?? "").trim();
+
   const { data: latest, error: latestErr } = await admin
     .from("jobs")
     .select("job_number")
@@ -116,9 +123,13 @@ export async function POST(req: Request) {
       customer,
       pickup,
       dropoff,
-      driver: driver || null, // (legacy field - ok to keep for now)
+      driver: driver || null, // legacy field (ok for now)
       status,
       notes: notes || null,
+
+      scheduled_date: scheduledDate,
+      window_start: windowStart || null,
+      window_end: windowEnd || null,
     })
     .select("*")
     .single();
