@@ -36,7 +36,6 @@ export default function RootLayout({
           from-neutral-950
           via-neutral-950
           to-black
-          text-white
         `}
       >
         {children}
@@ -44,3 +43,4 @@ export default function RootLayout({
     </html>
   );
 }
+

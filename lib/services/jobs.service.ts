@@ -15,3 +15,4 @@ export async function getJobsByCompany(companyId: string) {
   if (error) throw error;
   return data ?? [];
 }
+

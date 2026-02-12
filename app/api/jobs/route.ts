@@ -46,8 +46,8 @@ function nextJobNumberFromLatest(latest?: string | null) {
   return `JOB-${base + 1}`;
 }
 
-// ✅ GET: list jobs for current user company
-export async function GET() {
+// ✅ GET: list jobs for current user company (supports search + filters)
+export async function GET(req: Request) {
   const user = await getAuthedUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
@@ -56,7 +56,13 @@ export async function GET() {
     return NextResponse.json({ error: "No company profile" }, { status: 403 });
   }
 
-  const { data: rows, error } = await admin
+  const url = new URL(req.url);
+  const q = String(url.searchParams.get("q") ?? "").trim();
+  const status = String(url.searchParams.get("status") ?? "").trim();
+  const dateFrom = String(url.searchParams.get("dateFrom") ?? "").trim();
+  const dateTo = String(url.searchParams.get("dateTo") ?? "").trim();
+
+  let query = admin
     .from("jobs")
     .select(
       `
@@ -65,8 +71,24 @@ export async function GET() {
         vehicles(plate_no)
       `
     )
-    .eq("company_id", companyId)
-    .order("created_at", { ascending: false });
+    .eq("company_id", companyId);
+
+  // Search (job_number OR customer)
+  if (q) {
+    const safe = q.replace(/[,]/g, " ").trim();
+    query = query.or(`job_number.ilike.%${safe}%,customer.ilike.%${safe}%`);
+  }
+
+  // Status filter
+  if (status) {
+    query = query.eq("status", status);
+  }
+
+  // Scheduled date range filter (YYYY-MM-DD)
+  if (dateFrom) query = query.gte("scheduled_date", dateFrom);
+  if (dateTo) query = query.lte("scheduled_date", dateTo);
+
+  const { data: rows, error } = await query.order("created_at", { ascending: false });
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
@@ -138,3 +160,4 @@ export async function POST(req: Request) {
 
   return NextResponse.json({ job: row });
 }
+

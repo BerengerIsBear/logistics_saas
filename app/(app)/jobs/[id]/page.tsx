@@ -115,7 +115,7 @@ export default function JobDetailsPage({
           subtitle={`No job found for ID: ${id}`}
           action={
             <Link href="/jobs">
-              <Button variant="outlineDark">Back to Jobs</Button>
+              <Button variant="outline">Back to Jobs</Button>
             </Link>
           }
         />
@@ -299,7 +299,7 @@ export default function JobDetailsPage({
             ) : null}
 
             <Link href="/jobs">
-              <Button variant="outlineDark">Back</Button>
+              <Button variant="outline">Back</Button>
             </Link>
           </div>
         }

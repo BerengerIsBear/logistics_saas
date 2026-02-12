@@ -43,3 +43,4 @@ export async function GET() {
 
   return NextResponse.json({ companyId: profile.company_id });
 }
+

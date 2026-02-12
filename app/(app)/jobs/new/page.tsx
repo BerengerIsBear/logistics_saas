@@ -121,7 +121,7 @@ export default function NewJobPage() {
         title="Create Job"
         subtitle="Add a new delivery job."
         action={
-          <Button variant="outlineDark" type="button" onClick={() => router.push("/jobs")}>
+          <Button variant="outline" type="button" onClick={() => router.push("/jobs")}>
             Back
           </Button>
         }
@@ -291,3 +291,4 @@ export default function NewJobPage() {
     </PageShell>
   );
 }
+

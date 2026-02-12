@@ -6,8 +6,9 @@ export type Job = {
   customer: string;
   pickup: string;
   dropoff: string;
+  scheduled_date?: string; // YYYY-MM-DD
   driver?: string;
-  vehicle?: string; // NEW: e.g. plate no
+  vehicle?: string; // e.g. plate no
   status: JobStatus;
   notes?: string;
   createdAt: number;
@@ -47,9 +48,21 @@ export function getJobById(id: string) {
 /**
  * Option A bridge (client-safe):
  * Fetch from our Next.js API route (server talks to Supabase using service role)
+ *
+ * queryString can be:
+ *  - "" (default)
+ *  - "?q=JOB-1001&status=assigned"
+ *  - "q=JOB-1001&status=assigned"
  */
-export async function hydrateJobsFromSupabase() {
-  const res = await fetch("/api/jobs", { cache: "no-store" });
+export async function hydrateJobsFromSupabase(queryString: string = "") {
+  const qs =
+    queryString && queryString.startsWith("?")
+      ? queryString
+      : queryString
+      ? `?${queryString}`
+      : "";
+
+  const res = await fetch(`/api/jobs${qs}`, { cache: "no-store" });
   const json = await res.json();
 
   if (!res.ok) {
@@ -59,24 +72,15 @@ export async function hydrateJobsFromSupabase() {
   const rows = (json?.jobs ?? []) as any[];
 
   jobs = rows.map((j: any) => {
-    // Support BOTH styles:
-    // 1) legacy: j.driver string
-    // 2) joined: j.drivers.name + j.vehicles.plate_no
-    const driverName =
-      j?.drivers?.name ?? // joined relation
-      j?.driver ?? // legacy
-      undefined;
-
-    const vehiclePlate =
-      j?.vehicles?.plate_no ?? // joined relation
-      j?.vehicle ?? // (in case you later return it directly)
-      undefined;
+    const driverName = j?.drivers?.name ?? j?.driver ?? undefined;
+    const vehiclePlate = j?.vehicles?.plate_no ?? j?.vehicle ?? undefined;
 
     return {
       id: j.job_number ?? String(j.id),
       customer: j.customer,
       pickup: j.pickup,
       dropoff: j.dropoff,
+      scheduled_date: j.scheduled_date ?? undefined,
       driver: driverName ?? undefined,
       vehicle: vehiclePlate ?? undefined,
       status: (j.status as JobStatus) ?? "pending",
@@ -139,3 +143,4 @@ export function updateJobNotes(id: string, notes?: string) {
 
   if (changed) emit();
 }
+

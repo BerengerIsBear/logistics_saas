@@ -110,7 +110,7 @@ export default function DriverJobsPage() {
         subtitle="View jobs assigned to a driver (today / upcoming)"
         action={
           <Link href="/jobs">
-            <Button variant="outlineDark">Back to Jobs</Button>
+            <Button variant="outline">Back to Jobs</Button>
           </Link>
         }
       />
@@ -125,7 +125,7 @@ export default function DriverJobsPage() {
             <div className="grid gap-3">
               <label className="text-xs text-neutral-500">Driver</label>
               <select
-                className="w-full rounded-md border bg-white px-3 py-2 text-sm text-black"
+                className="w-full rounded-md border px-3 py-2 text-sm text-black"
                 value={driverId}
                 onChange={(e) => setDriverId(e.target.value)}
               >
@@ -181,7 +181,7 @@ export default function DriverJobsPage() {
 
                   return (
                     <Link key={j.id} href={`/jobs/${j.id}`} className="block">
-                      <div className="rounded-xl border border-neutral-200 bg-white p-4 hover:bg-neutral-50">
+                      <div className="rounded-xl border border-neutral-200 p-4 hover:bg-neutral-50">
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0">
                             <div className="text-sm font-medium text-neutral-900">{j.id}</div>
@@ -215,3 +215,4 @@ export default function DriverJobsPage() {
     </PageShell>
   );
 }
+
