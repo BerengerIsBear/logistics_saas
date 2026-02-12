@@ -9,6 +9,7 @@ export function Sidebar() {
 
   const isJobsActive = pathname.startsWith("/jobs");
   const isDriverJobsActive = pathname.startsWith("/driver/jobs");
+  const isCustomersActive = pathname.startsWith("/customers");
 
   const linkBase = "block rounded-md px-3 py-2 text-sm transition";
   const linkActive = "bg-neutral-900 text-white";
@@ -27,19 +28,28 @@ export function Sidebar() {
         </Link>
 
         <Link
+          href="/customers"
+          className={[linkBase, isCustomersActive ? linkActive : linkIdle].join(" ")}
+        >
+          Customers
+        </Link>
+
+        <Link
           href="/driver/jobs"
           className={[linkBase, isDriverJobsActive ? linkActive : linkIdle].join(" ")}
         >
           Driver Jobs
         </Link>
 
-        <div className="mt-4 px-3 text-xs uppercase text-neutral-400">Coming next</div>
+        <div className="mt-4 px-3 text-xs uppercase text-neutral-400">
+          Coming next
+        </div>
 
         <div className="px-3 py-2 text-sm text-neutral-400">Proof of Delivery</div>
-
         <div className="px-3 py-2 text-sm text-neutral-400">Invoices</div>
+        <div className="px-3 py-2 text-sm text-neutral-400">Reports</div>
+        <div className="px-3 py-2 text-sm text-neutral-400">Settings</div>
       </nav>
     </aside>
   );
 }
-

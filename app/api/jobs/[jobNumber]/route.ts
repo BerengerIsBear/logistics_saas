@@ -11,20 +11,11 @@ const admin = createClient(
 
 async function getAuthedUser() {
   const cookieStore = await cookies();
-
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return cookieStore.getAll();
-        },
-        setAll() {},
-      },
-    }
+    { cookies: { getAll: () => cookieStore.getAll(), setAll() {} } }
   );
-
   const { data } = await supabase.auth.getUser();
   return data.user ?? null;
 }
@@ -46,10 +37,38 @@ function nowIso() {
   return new Date().toISOString();
 }
 
-export async function PATCH(
-  req: Request,
-  ctx: { params: Promise<{ jobNumber: string }> }
-) {
+// ✅ GET one job (no more mockStore needed)
+export async function GET(_req: Request, ctx: { params: Promise<{ jobNumber: string }> }) {
+  const { jobNumber } = await ctx.params;
+
+  const user = await getAuthedUser();
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const companyId = await getCompanyId(user.id);
+  if (!companyId) return NextResponse.json({ error: "No company profile" }, { status: 403 });
+
+  const { data: job, error } = await admin
+    .from("jobs")
+    .select(
+      `
+        *,
+        customers(name),
+        drivers(name),
+        vehicles(plate_no)
+      `
+    )
+    .eq("company_id", companyId)
+    .eq("job_number", jobNumber)
+    .maybeSingle();
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (!job) return NextResponse.json({ error: "Job not found" }, { status: 404 });
+
+  return NextResponse.json({ job });
+}
+
+// ✅ PATCH status (keeps timestamps)
+export async function PATCH(req: Request, ctx: { params: Promise<{ jobNumber: string }> }) {
   const { jobNumber } = await ctx.params;
 
   const user = await getAuthedUser();
@@ -65,10 +84,9 @@ export async function PATCH(
     return NextResponse.json({ error: "Invalid status" }, { status: 400 });
   }
 
-  // Read current job to safely set lifecycle timestamps when needed
   const { data: current, error: readErr } = await admin
     .from("jobs")
-    .select("status,in_transit_at,delivered_at")
+    .select("in_transit_at,delivered_at")
     .eq("company_id", companyId)
     .eq("job_number", jobNumber)
     .maybeSingle();
@@ -77,21 +95,26 @@ export async function PATCH(
   if (!current) return NextResponse.json({ error: "Job not found" }, { status: 404 });
 
   const patch: Record<string, any> = { status };
-
-  // Auto-stamp timestamps for real lifecycle milestones
   if (status === "in_transit" && !current.in_transit_at) patch.in_transit_at = nowIso();
   if (status === "delivered" && !current.delivered_at) patch.delivered_at = nowIso();
 
-  const { data: row, error } = await admin
+  const { data: job, error } = await admin
     .from("jobs")
     .update(patch)
     .eq("company_id", companyId)
     .eq("job_number", jobNumber)
-    .select("*")
+    .select(
+      `
+        *,
+        customers(name),
+        drivers(name),
+        vehicles(plate_no)
+      `
+    )
     .maybeSingle();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  if (!row) return NextResponse.json({ error: "Job not found" }, { status: 404 });
+  if (!job) return NextResponse.json({ error: "Job not found" }, { status: 404 });
 
-  return NextResponse.json({ job: row });
+  return NextResponse.json({ job });
 }

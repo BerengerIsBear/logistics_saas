@@ -1,9 +1,8 @@
 // app/(app)/jobs/[id]/page.tsx
 "use client";
 
-import { use, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { use, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { getJobs, subscribe, hydrateJobsFromSupabase, type JobStatus } from "@/lib/mockStore";
 
 import { PageShell } from "@/components/PageShell";
 import { PageHeader } from "@/components/PageHeader";
@@ -11,6 +10,37 @@ import { Card, CardContent, CardHeader } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Select } from "@/components/ui/Select";
 import { StatusBadge } from "@/components/ui/StatusBadge";
+
+type JobStatus = "pending" | "assigned" | "in_transit" | "delivered";
+
+type JobApiRow = {
+  id: string; // DB uuid
+  job_number: string;
+
+  // customer (joined)
+  customer_id: string | null;
+  customers?: { name: string } | null;
+  customer?: string | null; // snapshot fallback
+
+  pickup: string;
+  dropoff: string;
+  notes: string | null;
+
+  status: JobStatus;
+
+  scheduled_date: string | null;
+  window_start: string | null;
+  window_end: string | null;
+
+  driver_id: string | null;
+  vehicle_id: string | null;
+
+  drivers?: { name: string } | null;
+  vehicles?: { plate_no: string } | null;
+
+  in_transit_at?: string | null;
+  delivered_at?: string | null;
+};
 
 type PodRow = {
   id: string;
@@ -39,13 +69,13 @@ export default function JobDetailsPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  const { id } = use(params);
+  const { id } = use(params); // this is job_number in your routing
 
-  // reactive job lookup
-  const jobs = useSyncExternalStore(subscribe, getJobs, getJobs);
-  const job = useMemo(() => jobs.find((j) => j.id === id), [jobs, id]);
+  const [job, setJob] = useState<JobApiRow | null>(null);
+  const [loadingJob, setLoadingJob] = useState(true);
+  const [jobError, setJobError] = useState("");
 
-  const [status, setStatus] = useState<JobStatus>(job?.status ?? "pending");
+  const [status, setStatus] = useState<JobStatus>("pending");
   const [savedMsg, setSavedMsg] = useState("");
   const [saving, setSaving] = useState(false);
   const [progressing, setProgressing] = useState(false);
@@ -58,7 +88,7 @@ export default function JobDetailsPage({
   const [assigning, setAssigning] = useState(false);
   const [assignError, setAssignError] = useState("");
 
-  // POD (Supabase via API route, private bucket w/ signed URLs)
+  // POD
   const [pods, setPods] = useState<PodRow[]>([]);
   const [podLoading, setPodLoading] = useState(false);
   const [podError, setPodError] = useState<string>("");
@@ -66,10 +96,38 @@ export default function JobDetailsPage({
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  // keep local status in sync if store changes
+  const title = useMemo(() => job?.job_number ?? id, [job?.job_number, id]);
+  const subtitle = useMemo(
+    () => job?.customers?.name ?? job?.customer ?? "",
+    [job?.customers?.name, job?.customer]
+  );
+
+  async function loadJob() {
+    setLoadingJob(true);
+    setJobError("");
+    try {
+      const res = await fetch(`/api/jobs/${encodeURIComponent(id)}`, { cache: "no-store" });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error || "Failed to load job");
+      setJob(json.job as JobApiRow);
+      setStatus((json.job?.status as JobStatus) ?? "pending");
+
+      // prefill dropdowns based on saved IDs
+      setDriverId(json.job?.driver_id ?? "");
+      setVehicleId(json.job?.vehicle_id ?? "");
+    } catch (e: any) {
+      setJobError(e?.message || "Failed to load job");
+      setJob(null);
+    } finally {
+      setLoadingJob(false);
+    }
+  }
+
+  // load job
   useEffect(() => {
-    if (job) setStatus(job.status);
-  }, [job?.status]); // eslint-disable-line react-hooks/exhaustive-deps
+    loadJob();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
 
   // load drivers + vehicles for dropdowns
   useEffect(() => {
@@ -82,16 +140,19 @@ export default function JobDetailsPage({
         if (dRes.ok) setDrivers((dJson?.drivers ?? []) as Driver[]);
         if (vRes.ok) setVehicles((vJson?.vehicles ?? []) as Vehicle[]);
       } catch {
-        // keep silent (UI still works without assignment)
+        // silent
       }
     })();
   }, []);
 
-  async function loadPods() {
+  // POD uses DB job UUID (preferred). Falls back to job_number only if missing.
+  async function loadPods(jobUuidOrJobNumber: string) {
     setPodError("");
     setPodLoading(true);
     try {
-      const res = await fetch(`/api/pod?jobId=${encodeURIComponent(id)}`, { cache: "no-store" });
+      const res = await fetch(`/api/pod?jobId=${encodeURIComponent(jobUuidOrJobNumber)}`, {
+        cache: "no-store",
+      });
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error || "Failed to load POD");
       setPods(json.items || []);
@@ -102,26 +163,12 @@ export default function JobDetailsPage({
     }
   }
 
+  // load pods when job loads
   useEffect(() => {
-    loadPods();
+    if (!job) return;
+    loadPods(job.id || id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]);
-
-  if (!job) {
-    return (
-      <PageShell>
-        <PageHeader
-          title="Job not found"
-          subtitle={`No job found for ID: ${id}`}
-          action={
-            <Link href="/jobs">
-              <Button variant="outline">Back to Jobs</Button>
-            </Link>
-          }
-        />
-      </PageShell>
-    );
-  }
+  }, [job?.id]);
 
   async function onSave() {
     setSavedMsg("");
@@ -140,12 +187,9 @@ export default function JobDetailsPage({
         setSavedMsg("Session expired. Please login again.");
         return;
       }
+      if (!res.ok) throw new Error(json?.error || "Failed to save status");
 
-      if (!res.ok) {
-        throw new Error(json?.error || "Failed to save status");
-      }
-
-      await hydrateJobsFromSupabase();
+      await loadJob();
 
       setSavedMsg("Saved!");
       setTimeout(() => setSavedMsg(""), 1200);
@@ -174,10 +218,9 @@ export default function JobDetailsPage({
         setSavedMsg("Session expired. Please login again.");
         return;
       }
-
       if (!res.ok) throw new Error(json?.error || "Action failed");
 
-      await hydrateJobsFromSupabase();
+      await loadJob();
 
       setSavedMsg(action === "start" ? "Started!" : "Completed!");
       setTimeout(() => setSavedMsg(""), 1200);
@@ -201,13 +244,14 @@ export default function JobDetailsPage({
       });
 
       const json = await res.json();
+
       if (res.status === 401) {
         setAssignError("Session expired. Please login again.");
         return;
       }
       if (!res.ok) throw new Error(json?.error || "Assign failed");
 
-      await hydrateJobsFromSupabase();
+      await loadJob();
 
       setSavedMsg("Assigned!");
       setTimeout(() => setSavedMsg(""), 1200);
@@ -230,9 +274,11 @@ export default function JobDetailsPage({
     setUploading(true);
 
     try {
+      const jobKey = job?.id ?? id;
+
       for (const file of files) {
         const fd = new FormData();
-        fd.append("jobId", id);
+        fd.append("jobId", jobKey);
         fd.append("file", file);
 
         const res = await fetch("/api/pod", { method: "POST", body: fd });
@@ -245,7 +291,7 @@ export default function JobDetailsPage({
       setPodError(e?.message || "Upload failed");
     } finally {
       setUploading(false);
-      e.target.value = ""; // allow same file again
+      e.target.value = "";
     }
   }
 
@@ -253,7 +299,7 @@ export default function JobDetailsPage({
     setPodError("");
 
     const prev = pods;
-    setPods((p) => p.filter((x) => x.id !== podId)); // optimistic
+    setPods((p) => p.filter((x) => x.id !== podId));
 
     try {
       const res = await fetch("/api/pod", {
@@ -264,16 +310,48 @@ export default function JobDetailsPage({
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error || "Delete failed");
     } catch (e: any) {
-      setPods(prev); // rollback
+      setPods(prev);
       setPodError(e?.message || "Delete failed");
     }
+  }
+
+  if (loadingJob) {
+    return (
+      <PageShell>
+        <PageHeader
+          title="Loading..."
+          subtitle="Fetching job details"
+          action={
+            <Link href="/jobs">
+              <Button variant="outline">Back</Button>
+            </Link>
+          }
+        />
+      </PageShell>
+    );
+  }
+
+  if (!job) {
+    return (
+      <PageShell>
+        <PageHeader
+          title="Job not found"
+          subtitle={jobError || `No job found for ID: ${id}`}
+          action={
+            <Link href="/jobs">
+              <Button variant="outline">Back to Jobs</Button>
+            </Link>
+          }
+        />
+      </PageShell>
+    );
   }
 
   return (
     <PageShell>
       <PageHeader
-        title={job.id}
-        subtitle={job.customer}
+        title={title}
+        subtitle={subtitle}
         action={
           <div className="flex flex-wrap gap-2">
             {status === "assigned" ? (
@@ -334,12 +412,14 @@ export default function JobDetailsPage({
 
               <div>
                 <div className="text-xs text-neutral-500">Driver</div>
-                <div className="mt-1 font-medium text-neutral-900">{job.driver ?? "-"}</div>
+                <div className="mt-1 font-medium text-neutral-900">{job.drivers?.name ?? "-"}</div>
               </div>
 
               <div>
                 <div className="text-xs text-neutral-500">Vehicle</div>
-                <div className="mt-1 font-medium text-neutral-900">{job.vehicle ?? "-"}</div>
+                <div className="mt-1 font-medium text-neutral-900">
+                  {job.vehicles?.plate_no ?? "-"}
+                </div>
               </div>
 
               <div>
@@ -349,6 +429,11 @@ export default function JobDetailsPage({
                     ? "In Transit"
                     : status.charAt(0).toUpperCase() + status.slice(1)}
                 </div>
+              </div>
+
+              <div>
+                <div className="text-xs text-neutral-500">Scheduled</div>
+                <div className="mt-1 font-medium text-neutral-900">{job.scheduled_date ?? "-"}</div>
               </div>
             </div>
 
@@ -424,20 +509,14 @@ export default function JobDetailsPage({
 
               {savedMsg ? <span className="text-sm text-neutral-700">{savedMsg}</span> : null}
             </div>
-
-            <p className="mt-3 text-xs text-neutral-500">
-              (Now: Save writes to Supabase via PATCH, Assign writes via PATCH /assign, then refreshes store.)
-            </p>
           </CardContent>
         </Card>
 
-        {/* POD Upload (private bucket via server API) */}
+        {/* POD */}
         <Card>
           <CardHeader>
             <div className="text-sm font-medium text-neutral-900">Proof of Delivery</div>
-            <div className="mt-1 text-sm text-neutral-500">
-              Private bucket. Served via signed URLs.
-            </div>
+            <div className="mt-1 text-sm text-neutral-500">Private bucket. Served via signed URLs.</div>
           </CardHeader>
 
           <CardContent>
@@ -459,7 +538,12 @@ export default function JobDetailsPage({
                   {uploading ? "Uploading..." : "Choose File"}
                 </Button>
 
-                <Button variant="outline" type="button" onClick={loadPods} disabled={podLoading}>
+                <Button
+                  variant="outline"
+                  type="button"
+                  onClick={() => loadPods(job.id || id)}
+                  disabled={podLoading}
+                >
                   {podLoading ? "Refreshing..." : "Refresh"}
                 </Button>
               </div>
@@ -482,12 +566,9 @@ export default function JobDetailsPage({
                     <div key={p.id} className="rounded-xl border border-neutral-200 bg-white p-3">
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
-                          <div className="truncate text-sm font-medium text-neutral-900">
-                            {p.file_name}
-                          </div>
+                          <div className="truncate text-sm font-medium text-neutral-900">{p.file_name}</div>
                           <div className="mt-1 text-xs text-neutral-500">
-                            {isPdf ? "PDF" : isImage ? "Image" : mime || "File"} •{" "}
-                            {formatBytes(p.size ?? 0)}
+                            {isPdf ? "PDF" : isImage ? "Image" : mime || "File"} • {formatBytes(p.size ?? 0)}
                           </div>
                         </div>
 
@@ -504,11 +585,7 @@ export default function JobDetailsPage({
                         isImage ? (
                           <div className="mt-3 overflow-hidden rounded-lg border border-neutral-200">
                             {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img
-                              src={p.signedUrl}
-                              alt={p.file_name}
-                              className="h-40 w-full object-cover"
-                            />
+                            <img src={p.signedUrl} alt={p.file_name} className="h-40 w-full object-cover" />
                           </div>
                         ) : isPdf ? (
                           <div className="mt-3 text-sm">
@@ -534,9 +611,7 @@ export default function JobDetailsPage({
                           </div>
                         )
                       ) : (
-                        <div className="mt-3 text-xs text-neutral-500">
-                          Signed URL missing. Click Refresh.
-                        </div>
+                        <div className="mt-3 text-xs text-neutral-500">Signed URL missing. Click Refresh.</div>
                       )}
                     </div>
                   );

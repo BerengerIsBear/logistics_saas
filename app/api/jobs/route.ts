@@ -11,20 +11,11 @@ const admin = createClient(
 
 async function getAuthedUser() {
   const cookieStore = await cookies();
-
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return cookieStore.getAll();
-        },
-        setAll() {},
-      },
-    }
+    { cookies: { getAll: () => cookieStore.getAll(), setAll() {} } }
   );
-
   const { data } = await supabase.auth.getUser();
   return data.user ?? null;
 }
@@ -46,15 +37,13 @@ function nextJobNumberFromLatest(latest?: string | null) {
   return `JOB-${base + 1}`;
 }
 
-// ✅ GET: list jobs for current user company (supports search + filters)
+// ✅ GET jobs with filters + joins (customers/drivers/vehicles)
 export async function GET(req: Request) {
   const user = await getAuthedUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const companyId = await getCompanyId(user.id);
-  if (!companyId) {
-    return NextResponse.json({ error: "No company profile" }, { status: 403 });
-  }
+  if (!companyId) return NextResponse.json({ error: "No company profile" }, { status: 403 });
 
   const url = new URL(req.url);
   const q = String(url.searchParams.get("q") ?? "").trim();
@@ -67,63 +56,65 @@ export async function GET(req: Request) {
     .select(
       `
         *,
+        customers(name),
         drivers(name),
         vehicles(plate_no)
       `
     )
     .eq("company_id", companyId);
 
-  // Search (job_number OR customer)
   if (q) {
     const safe = q.replace(/[,]/g, " ").trim();
-    query = query.or(`job_number.ilike.%${safe}%,customer.ilike.%${safe}%`);
+    query = query.or(
+      `job_number.ilike.%${safe}%,customer.ilike.%${safe}%,customers.name.ilike.%${safe}%`
+    );
   }
 
-  // Status filter
-  if (status) {
-    query = query.eq("status", status);
-  }
-
-  // Scheduled date range filter (YYYY-MM-DD)
+  if (status) query = query.eq("status", status);
   if (dateFrom) query = query.gte("scheduled_date", dateFrom);
   if (dateTo) query = query.lte("scheduled_date", dateTo);
 
-  const { data: rows, error } = await query.order("created_at", { ascending: false });
-
+  const { data, error } = await query.order("created_at", { ascending: false });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  return NextResponse.json({ jobs: rows ?? [] });
+  return NextResponse.json({ jobs: data ?? [] });
 }
 
-// ✅ POST: create job (A+B: UI requires, API defaults)
+// ✅ POST create job (customer_id required, no more free-text customer creation)
 export async function POST(req: Request) {
   const user = await getAuthedUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const companyId = await getCompanyId(user.id);
-  if (!companyId) {
-    return NextResponse.json({ error: "No company profile" }, { status: 403 });
-  }
+  if (!companyId) return NextResponse.json({ error: "No company profile" }, { status: 403 });
 
   const body = await req.json().catch(() => null);
 
-  const customer = String(body?.customer ?? "").trim();
+  const customerId = String(body?.customer_id ?? "").trim();
   const pickup = String(body?.pickup ?? "").trim();
   const dropoff = String(body?.dropoff ?? "").trim();
-  const driver = String(body?.driver ?? "").trim();
-  const status = String(body?.status ?? "pending").trim();
   const notes = String(body?.notes ?? "").trim();
 
-  if (!customer) return NextResponse.json({ error: "Customer is required" }, { status: 400 });
+  if (!customerId) return NextResponse.json({ error: "customer_id is required" }, { status: 400 });
   if (!pickup) return NextResponse.json({ error: "Pickup is required" }, { status: 400 });
   if (!dropoff) return NextResponse.json({ error: "Drop-off is required" }, { status: 400 });
 
-  // B) Server safety: default scheduled_date to today if missing
+  // Server safety
   const scheduledDate =
     String(body?.scheduled_date ?? "").trim() || new Date().toISOString().slice(0, 10);
-
   const windowStart = String(body?.window_start ?? "").trim();
   const windowEnd = String(body?.window_end ?? "").trim();
+
+  // Validate customer belongs to same company
+  const { data: cust, error: custErr } = await admin
+    .from("customers")
+    .select("id,name")
+    .eq("company_id", companyId)
+    .eq("id", customerId)
+    .maybeSingle();
+
+  if (custErr) return NextResponse.json({ error: custErr.message }, { status: 500 });
+  if (!cust) return NextResponse.json({ error: "Invalid customer_id" }, { status: 400 });
 
   const { data: latest, error: latestErr } = await admin
     .from("jobs")
@@ -137,27 +128,36 @@ export async function POST(req: Request) {
 
   const jobNumber = nextJobNumberFromLatest(latest?.job_number);
 
+  // Keep customer snapshot for readability + historical correctness
   const { data: row, error } = await admin
     .from("jobs")
     .insert({
       company_id: companyId,
       job_number: jobNumber,
-      customer,
+
+      customer_id: cust.id,
+      customer: cust.name, // snapshot
+
       pickup,
       dropoff,
-      driver: driver || null, // legacy field (ok for now)
-      status,
+      status: "pending",
       notes: notes || null,
 
       scheduled_date: scheduledDate,
       window_start: windowStart || null,
       window_end: windowEnd || null,
     })
-    .select("*")
+    .select(
+      `
+        *,
+        customers(name),
+        drivers(name),
+        vehicles(plate_no)
+      `
+    )
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   return NextResponse.json({ job: row });
 }
-

@@ -2,14 +2,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
-import {
-  getJobs,
-  subscribe,
-  hydrateJobsFromSupabase,
-  type JobStatus,
-} from "@/lib/mockStore";
-
+import { useEffect, useMemo, useState } from "react";
 import { PageShell } from "@/components/PageShell";
 import { PageHeader } from "@/components/PageHeader";
 import { Card, CardContent } from "@/components/ui/Card";
@@ -17,6 +10,21 @@ import { Button } from "@/components/ui/Button";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
+
+type JobStatus = "pending" | "assigned" | "in_transit" | "delivered";
+
+type JobRow = {
+  job_number: string;
+  pickup: string;
+  dropoff: string;
+  scheduled_date: string | null;
+  status: JobStatus;
+  customers?: { name: string } | null;
+  customer?: string | null; // fallback snapshot
+  drivers?: { name: string } | null;
+  vehicles?: { plate_no: string } | null;
+  created_at: string;
+};
 
 type StatusFilter = "all" | JobStatus;
 type SortMode = "newest" | "oldest";
@@ -30,8 +38,7 @@ function toYmd(d: Date) {
 }
 
 export default function JobsPage() {
-  const jobs = useSyncExternalStore(subscribe, getJobs, getJobs);
-
+  const [rows, setRows] = useState<JobRow[]>([]);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [sort, setSort] = useState<SortMode>("newest");
@@ -41,14 +48,12 @@ export default function JobsPage() {
   const [rangeTo, setRangeTo] = useState("");
 
   const [loading, setLoading] = useState(false);
-  const [loadErr, setLoadErr] = useState("");
+  const [err, setErr] = useState("");
 
   function buildQueryString() {
     const params = new URLSearchParams();
-
     const q = query.trim();
     if (q) params.set("q", q);
-
     if (statusFilter !== "all") params.set("status", statusFilter);
 
     const today = new Date();
@@ -79,55 +84,42 @@ export default function JobsPage() {
     return s ? `?${s}` : "";
   }
 
-  async function loadJobs() {
+  async function load() {
     setLoading(true);
-    setLoadErr("");
-
+    setErr("");
     try {
       const qs = buildQueryString();
-      await hydrateJobsFromSupabase(qs);
+      const res = await fetch(`/api/jobs${qs}`, { cache: "no-store" });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error || "Failed to load jobs");
+      setRows(json.jobs || []);
     } catch (e: any) {
-      setLoadErr(e?.message || "Failed to load jobs");
+      setErr(e?.message || "Failed to load jobs");
     } finally {
       setLoading(false);
     }
   }
 
   useEffect(() => {
-    let alive = true;
-
-    (async () => {
-      if (!alive) return;
-      await loadJobs();
-    })();
-
-    return () => {
-      alive = false;
-    };
+    load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const filtered = useMemo(() => {
-    // Server already filtered. Keep client-side sort only.
-    const getTime = (j: any) =>
-      typeof j.createdAt === "number"
-        ? j.createdAt
-        : j.createdAt
-        ? new Date(j.createdAt).getTime()
-        : 0;
-
-    return [...jobs].sort((a: any, b: any) => {
-      const ta = getTime(a);
-      const tb = getTime(b);
+  const sorted = useMemo(() => {
+    const copy = [...rows];
+    copy.sort((a, b) => {
+      const ta = new Date(a.created_at).getTime();
+      const tb = new Date(b.created_at).getTime();
       return sort === "newest" ? tb - ta : ta - tb;
     });
-  }, [jobs, sort]);
+    return copy;
+  }, [rows, sort]);
 
   return (
     <PageShell>
       <PageHeader
         title="Jobs"
-        subtitle="Track deliveries, assign drivers, and update status."
+        subtitle="Create, dispatch, and track job lifecycle."
         action={
           <Link href="/jobs/new">
             <Button variant="outline">+ Create Job</Button>
@@ -135,23 +127,19 @@ export default function JobsPage() {
         }
       />
 
-      {/* Toolbar */}
       <Card className="mb-4">
-        <CardContent className="bg-white">
+        <CardContent>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
             <div className="flex-1">
               <Input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search by Job ID or Customer..."
+                placeholder="Search job ID or customer..."
               />
             </div>
 
             <div className="flex flex-wrap gap-3">
-              <Select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
-              >
+              <Select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as any)}>
                 <option value="all">All Status</option>
                 <option value="pending">Pending</option>
                 <option value="assigned">Assigned</option>
@@ -159,10 +147,7 @@ export default function JobsPage() {
                 <option value="delivered">Delivered</option>
               </Select>
 
-              <Select
-                value={datePreset}
-                onChange={(e) => setDatePreset(e.target.value as DatePreset)}
-              >
+              <Select value={datePreset} onChange={(e) => setDatePreset(e.target.value as any)}>
                 <option value="all">All Dates</option>
                 <option value="today">Today</option>
                 <option value="tomorrow">Tomorrow</option>
@@ -170,12 +155,12 @@ export default function JobsPage() {
                 <option value="range">Date range</option>
               </Select>
 
-              <Select value={sort} onChange={(e) => setSort(e.target.value as SortMode)}>
+              <Select value={sort} onChange={(e) => setSort(e.target.value as any)}>
                 <option value="newest">Newest</option>
                 <option value="oldest">Oldest</option>
               </Select>
 
-              <Button variant="outline" type="button" onClick={loadJobs}>
+              <Button variant="outline" type="button" onClick={load}>
                 Apply
               </Button>
             </div>
@@ -214,7 +199,7 @@ export default function JobsPage() {
                     setRangeFrom("");
                     setRangeTo("");
                     setSort("newest");
-                    setTimeout(loadJobs, 0);
+                    setTimeout(load, 0);
                   }}
                 >
                   Reset
@@ -233,7 +218,7 @@ export default function JobsPage() {
                   setRangeFrom("");
                   setRangeTo("");
                   setSort("newest");
-                  setTimeout(loadJobs, 0);
+                  setTimeout(load, 0);
                 }}
               >
                 Reset
@@ -242,18 +227,11 @@ export default function JobsPage() {
           )}
 
           <div className="mt-2 flex items-center justify-between gap-3 text-xs text-neutral-500">
-            <div>
-              Showing <span className="font-medium text-neutral-800">{filtered.length}</span>{" "}
-              job(s)
-            </div>
-
+            <div>Showing <span className="font-medium text-neutral-900">{sorted.length}</span> job(s)</div>
             <div className="flex items-center gap-2">
               {loading ? <span>Loading...</span> : null}
-              {loadErr ? <span className="text-red-600">{loadErr}</span> : null}
-
-              <Button variant="outline" type="button" onClick={loadJobs}>
-                Refresh
-              </Button>
+              {err ? <span className="text-red-600">{err}</span> : null}
+              <Button variant="outline" type="button" onClick={load}>Refresh</Button>
             </div>
           </div>
         </CardContent>
@@ -276,62 +254,27 @@ export default function JobsPage() {
               </thead>
 
               <tbody className="divide-y divide-neutral-200 text-neutral-700">
-                {filtered.map((job) => (
-                  <tr key={job.id} className="hover:bg-neutral-50/70">
+                {sorted.map((j) => (
+                  <tr key={j.job_number} className="hover:bg-neutral-50/70">
                     <td className="px-6 py-3 font-medium">
-                      <Link href={`/jobs/${job.id}`} className="text-neutral-900 hover:underline">
-                        {job.id}
+                      <Link href={`/jobs/${j.job_number}`} className="text-neutral-900 hover:underline">
+                        {j.job_number}
                       </Link>
                     </td>
-
-                    <td className="px-6 py-3">{job.customer}</td>
-                    <td className="px-6 py-3">{job.scheduled_date ?? "-"}</td>
-                    <td className="px-6 py-3">{job.pickup}</td>
-                    <td className="px-6 py-3">{job.dropoff}</td>
-                    <td className="px-6 py-3">{job.driver ?? "-"}</td>
-                    <td className="px-6 py-3">
-                      <StatusBadge status={job.status} />
-                    </td>
+                    <td className="px-6 py-3">{j.customers?.name ?? j.customer ?? "-"}</td>
+                    <td className="px-6 py-3">{j.scheduled_date ?? "-"}</td>
+                    <td className="px-6 py-3">{j.pickup}</td>
+                    <td className="px-6 py-3">{j.dropoff}</td>
+                    <td className="px-6 py-3">{j.drivers?.name ?? "-"}</td>
+                    <td className="px-6 py-3"><StatusBadge status={j.status} /></td>
                   </tr>
                 ))}
 
-                {jobs.length === 0 && !loading && !loadErr && (
+                {!loading && sorted.length === 0 && !err && (
                   <tr>
                     <td colSpan={7} className="px-6 py-10 text-center">
-                      <div className="text-sm text-neutral-500">No jobs yet.</div>
+                      <div className="text-sm text-neutral-500">No jobs found.</div>
                       <div className="mt-3">
-                        <Link href="/jobs/new">
-                          <Button variant="primary">Create your first job</Button>
-                        </Link>
-                      </div>
-                    </td>
-                  </tr>
-                )}
-
-                {jobs.length > 0 && filtered.length === 0 && (
-                  <tr>
-                    <td colSpan={7} className="px-6 py-10 text-center">
-                      <div className="text-sm text-neutral-500">
-                        No results. Try clearing search / filters.
-                      </div>
-
-                      <div className="mt-3 flex justify-center gap-2">
-                        <Button
-                          variant="outline"
-                          type="button"
-                          onClick={() => {
-                            setQuery("");
-                            setStatusFilter("all");
-                            setDatePreset("all");
-                            setRangeFrom("");
-                            setRangeTo("");
-                            setSort("newest");
-                            setTimeout(loadJobs, 0);
-                          }}
-                        >
-                          Reset
-                        </Button>
-
                         <Link href="/jobs/new">
                           <Button variant="primary">Create job</Button>
                         </Link>
@@ -340,14 +283,12 @@ export default function JobsPage() {
                   </tr>
                 )}
 
-                {loadErr && (
+                {err && (
                   <tr>
                     <td colSpan={7} className="px-6 py-10 text-center">
-                      <div className="text-sm text-red-600">{loadErr}</div>
+                      <div className="text-sm text-red-600">{err}</div>
                       <div className="mt-3">
-                        <Button variant="outline" type="button" onClick={loadJobs}>
-                          Retry
-                        </Button>
+                        <Button variant="outline" type="button" onClick={load}>Retry</Button>
                       </div>
                     </td>
                   </tr>
@@ -360,4 +301,3 @@ export default function JobsPage() {
     </PageShell>
   );
 }
-
