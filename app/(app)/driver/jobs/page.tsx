@@ -8,39 +8,56 @@ import { PageHeader } from "@/components/PageHeader";
 import { Card, CardContent, CardHeader } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { StatusBadge } from "@/components/ui/StatusBadge";
-import type { JobStatus } from "@/lib/mockStore";
 
-type Driver = { id: string; name: string };
-type JobRow = any;
+type JobStatus = "pending" | "assigned" | "in_transit" | "delivered";
+
+// what API returns (minimal fields we use)
+type JobRow = {
+  id: string; // db uuid
+  job_number: string;
+
+  customer?: string | null; // snapshot fallback
+  customers?: { name: string } | null;
+
+  pickup: string;
+  dropoff: string;
+
+  status: JobStatus;
+
+  created_at: string;
+
+  scheduled_date?: string | null;
+  window_start?: string | null;
+  window_end?: string | null;
+
+  drivers?: { name: string } | null;
+  vehicles?: { plate_no: string } | null;
+};
 
 type UiJob = {
-  id: string;
+  id: string; // job_number for routing
   customer: string;
   pickup: string;
   dropoff: string;
-  driver?: string;
   vehicle?: string;
   status: JobStatus;
   createdAt: number;
 
-  // NEW scheduling fields for display
   scheduled_date?: string | null;
   window_start?: string | null;
   window_end?: string | null;
 };
 
 function toUiJob(j: JobRow): UiJob {
-  const driverName = j?.drivers?.name ?? undefined;
   const vehiclePlate = j?.vehicles?.plate_no ?? undefined;
 
   return {
-    id: j.job_number ?? String(j.id),
-    customer: j.customer,
+    id: j.job_number, // ✅ always use job_number for /jobs/[id]
+    customer: j?.customers?.name ?? j?.customer ?? "-",
     pickup: j.pickup,
     dropoff: j.dropoff,
-    driver: driverName,
     vehicle: vehiclePlate,
-    status: (j.status as JobStatus) ?? "pending",
+    status: j.status ?? "pending",
     createdAt: j.created_at ? new Date(j.created_at).getTime() : Date.now(),
 
     scheduled_date: j.scheduled_date ?? null,
@@ -58,8 +75,6 @@ function formatWindow(start?: string | null, end?: string | null) {
 }
 
 export default function DriverJobsPage() {
-  const [drivers, setDrivers] = useState<Driver[]>([]);
-  const [driverId, setDriverId] = useState("");
   const [scope, setScope] = useState<"today" | "upcoming">("today");
 
   const [loading, setLoading] = useState(false);
@@ -68,46 +83,33 @@ export default function DriverJobsPage() {
 
   const jobs = useMemo(() => rows.map(toUiJob), [rows]);
 
-  useEffect(() => {
-    (async () => {
-      const res = await fetch("/api/drivers");
+  async function load() {
+    setError("");
+    setLoading(true);
+
+    try {
+      const res = await fetch(`/api/driver-jobs?scope=${scope}`, { cache: "no-store" });
       const json = await res.json();
-      if (res.ok) {
-        const list = (json.drivers ?? []) as Driver[];
-        setDrivers(list);
-        if (list[0]?.id) setDriverId(list[0].id);
-      }
-    })();
-  }, []);
+      if (!res.ok) throw new Error(json?.error || "Failed to load jobs");
+      setRows((json.jobs ?? []) as JobRow[]);
+    } catch (e: any) {
+      setError(e?.message || "Failed to load jobs");
+      setRows([]);
+    } finally {
+      setLoading(false);
+    }
+  }
 
   useEffect(() => {
-    if (!driverId) return;
-
-    (async () => {
-      setError("");
-      setLoading(true);
-      try {
-        const res = await fetch(
-          `/api/driver-jobs?driverId=${encodeURIComponent(driverId)}&scope=${scope}`,
-          { cache: "no-store" }
-        );
-        const json = await res.json();
-        if (!res.ok) throw new Error(json?.error || "Failed to load jobs");
-        setRows(json.jobs ?? []);
-      } catch (e: any) {
-        setError(e?.message || "Failed to load jobs");
-        setRows([]);
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, [driverId, scope]);
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scope]);
 
   return (
     <PageShell>
       <PageHeader
-        title="Driver Jobs"
-        subtitle="View jobs assigned to a driver (today / upcoming)"
+        title="My Jobs"
+        subtitle="Jobs assigned to you (today / upcoming)"
         action={
           <Link href="/jobs">
             <Button variant="outline">Back to Jobs</Button>
@@ -118,41 +120,33 @@ export default function DriverJobsPage() {
       <div className="grid gap-6 lg:grid-cols-3">
         <Card>
           <CardHeader>
-            <div className="text-sm font-medium text-neutral-900">Filters</div>
-            <div className="mt-1 text-sm text-neutral-500">Pick a driver and scope.</div>
+            <div className="text-sm font-medium text-neutral-900">Scope</div>
+            <div className="mt-1 text-sm text-neutral-500">Switch between today and upcoming.</div>
           </CardHeader>
-          <CardContent>
-            <div className="grid gap-3">
-              <label className="text-xs text-neutral-500">Driver</label>
-              <select
-                className="w-full rounded-md border px-3 py-2 text-sm text-black"
-                value={driverId}
-                onChange={(e) => setDriverId(e.target.value)}
-              >
-                {drivers.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.name}
-                  </option>
-                ))}
-              </select>
 
-              <label className="mt-3 text-xs text-neutral-500">Scope</label>
-              <div className="flex gap-2">
-                <Button
-                  variant={scope === "today" ? "primary" : "outline"}
-                  type="button"
-                  onClick={() => setScope("today")}
-                >
-                  Today
-                </Button>
-                <Button
-                  variant={scope === "upcoming" ? "primary" : "outline"}
-                  type="button"
-                  onClick={() => setScope("upcoming")}
-                >
-                  Upcoming
-                </Button>
-              </div>
+          <CardContent>
+            <div className="flex gap-2">
+              <Button
+                variant={scope === "today" ? "primary" : "outline"}
+                type="button"
+                onClick={() => setScope("today")}
+              >
+                Today
+              </Button>
+
+              <Button
+                variant={scope === "upcoming" ? "primary" : "outline"}
+                type="button"
+                onClick={() => setScope("upcoming")}
+              >
+                Upcoming
+              </Button>
+            </div>
+
+            <div className="mt-3">
+              <Button variant="outline" type="button" onClick={load} disabled={loading}>
+                {loading ? "Refreshing..." : "Refresh"}
+              </Button>
             </div>
 
             {error ? <div className="mt-4 text-sm text-red-600">{error}</div> : null}
@@ -172,7 +166,7 @@ export default function DriverJobsPage() {
               <div className="text-sm text-neutral-500">Loading jobs…</div>
             ) : jobs.length === 0 ? (
               <div className="text-sm text-neutral-500">
-                No jobs found. (Tip: jobs must have a Scheduled Date now.)
+                No jobs found. (If this is wrong, check profiles.driver_id is set.)
               </div>
             ) : (
               <div className="space-y-3">
@@ -215,4 +209,3 @@ export default function DriverJobsPage() {
     </PageShell>
   );
 }
-
