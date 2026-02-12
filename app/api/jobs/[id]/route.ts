@@ -1,11 +1,11 @@
-// app/api/jobs/[jobNumber]/route.ts
+// app/api/jobs/[id]/route.ts
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 import { createClient } from "@supabase/supabase-js";
 
 const admin = createClient(
-  process.env.SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
@@ -25,7 +25,7 @@ async function getCompanyId(userId: string) {
     .from("profiles")
     .select("company_id")
     .eq("id", userId)
-    .single();
+    .maybeSingle();
 
   if (error || !data?.company_id) return null;
   return data.company_id as string;
@@ -37,9 +37,10 @@ function nowIso() {
   return new Date().toISOString();
 }
 
-// ✅ GET one job (no more mockStore needed)
-export async function GET(_req: Request, ctx: { params: Promise<{ jobNumber: string }> }) {
-  const { jobNumber } = await ctx.params;
+// ✅ GET one job by job_number (id = job number in URL)
+export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const { id } = await ctx.params;
+  const jobNumber = decodeURIComponent(id);
 
   const user = await getAuthedUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -68,8 +69,9 @@ export async function GET(_req: Request, ctx: { params: Promise<{ jobNumber: str
 }
 
 // ✅ PATCH status (keeps timestamps)
-export async function PATCH(req: Request, ctx: { params: Promise<{ jobNumber: string }> }) {
-  const { jobNumber } = await ctx.params;
+export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const { id } = await ctx.params;
+  const jobNumber = decodeURIComponent(id);
 
   const user = await getAuthedUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
