@@ -48,6 +48,7 @@ export default function JobDetailsPage({
   const [status, setStatus] = useState<JobStatus>(job?.status ?? "pending");
   const [savedMsg, setSavedMsg] = useState("");
   const [saving, setSaving] = useState(false);
+  const [progressing, setProgressing] = useState(false);
 
   // Assignments
   const [drivers, setDrivers] = useState<Driver[]>([]);
@@ -155,6 +156,38 @@ export default function JobDetailsPage({
     }
   }
 
+  async function onProgress(action: "start" | "complete") {
+    setSavedMsg("");
+    setAssignError("");
+    setProgressing(true);
+
+    try {
+      const res = await fetch(`/api/jobs/${encodeURIComponent(id)}/progress`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action }),
+      });
+
+      const json = await res.json();
+
+      if (res.status === 401) {
+        setSavedMsg("Session expired. Please login again.");
+        return;
+      }
+
+      if (!res.ok) throw new Error(json?.error || "Action failed");
+
+      await hydrateJobsFromSupabase();
+
+      setSavedMsg(action === "start" ? "Started!" : "Completed!");
+      setTimeout(() => setSavedMsg(""), 1200);
+    } catch (e: any) {
+      setSavedMsg(e?.message || "Action failed");
+    } finally {
+      setProgressing(false);
+    }
+  }
+
   async function onAssign() {
     setAssignError("");
     setSavedMsg("");
@@ -242,9 +275,33 @@ export default function JobDetailsPage({
         title={job.id}
         subtitle={job.customer}
         action={
-          <Link href="/jobs">
-            <Button variant="outlineDark">Back</Button>
-          </Link>
+          <div className="flex flex-wrap gap-2">
+            {status === "assigned" ? (
+              <Button
+                variant="primary"
+                type="button"
+                disabled={progressing}
+                onClick={() => onProgress("start")}
+              >
+                {progressing ? "Starting..." : "Start Job"}
+              </Button>
+            ) : null}
+
+            {status === "in_transit" ? (
+              <Button
+                variant="primary"
+                type="button"
+                disabled={progressing}
+                onClick={() => onProgress("complete")}
+              >
+                {progressing ? "Completing..." : "Complete Job"}
+              </Button>
+            ) : null}
+
+            <Link href="/jobs">
+              <Button variant="outlineDark">Back</Button>
+            </Link>
+          </div>
         }
       />
 
