@@ -50,6 +50,27 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     return NextResponse.json({ error: "driverId and vehicleId required" }, { status: 400 });
   }
 
+  // Read current job status (lifecycle enforcement)
+  const { data: currentJob, error: readErr } = await admin
+    .from("jobs")
+    .select("id,status")
+    .eq("company_id", companyId)
+    .eq("job_number", jobNumber)
+    .maybeSingle();
+
+  if (readErr) return NextResponse.json({ error: readErr.message }, { status: 500 });
+  if (!currentJob) return NextResponse.json({ error: "Job not found" }, { status: 404 });
+
+  // pending -> assigned is allowed here
+  // assigned -> assigned (re-assign) is allowed here
+  // in_transit / delivered cannot be re-assigned
+  if (currentJob.status === "in_transit" || currentJob.status === "delivered") {
+    return NextResponse.json(
+      { error: "Cannot assign/re-assign after the job has started" },
+      { status: 400 }
+    );
+  }
+
   // Ensure driver belongs to company
   const { data: driverRow, error: dErr } = await admin
     .from("drivers")

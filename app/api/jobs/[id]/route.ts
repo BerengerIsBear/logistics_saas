@@ -31,11 +31,12 @@ async function getCompanyId(userId: string) {
   return data.company_id as string;
 }
 
-const ALLOWED_STATUSES = new Set(["pending", "assigned", "in_transit", "delivered"]);
-
-function nowIso() {
-  return new Date().toISOString();
-}
+// NOTE:
+// We intentionally DO NOT allow direct status changes here.
+// Status transitions are enforced via dedicated endpoints:
+// - pending -> assigned: PATCH /api/jobs/[id]/assign
+// - assigned -> in_transit: PATCH /api/jobs/[id]/progress { action: "start" }
+// - in_transit -> delivered: PATCH /api/jobs/[id]/progress { action: "complete" }
 
 // ✅ GET one job by job_number (id = job number in URL)
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
@@ -68,7 +69,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   return NextResponse.json({ job });
 }
 
-// ✅ PATCH status (keeps timestamps)
+// ✅ PATCH job fields (status changes are NOT allowed here)
 export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
   const jobNumber = decodeURIComponent(id);
@@ -80,25 +81,40 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   if (!companyId) return NextResponse.json({ error: "No company profile" }, { status: 403 });
 
   const body = await req.json().catch(() => null);
-  const status = String(body?.status ?? "").trim();
 
-  if (!ALLOWED_STATUSES.has(status)) {
-    return NextResponse.json({ error: "Invalid status" }, { status: 400 });
+  // 🔒 Hard rule: status cannot be changed via this route.
+  // Use /assign or /progress to move the job through its lifecycle.
+  if (body && Object.prototype.hasOwnProperty.call(body, "status")) {
+    return NextResponse.json(
+      {
+        error:
+          'Direct status updates are disabled. Use /api/jobs/[id]/assign (pending→assigned) or /api/jobs/[id]/progress (assigned→in_transit→delivered).',
+      },
+      { status: 400 }
+    );
   }
 
-  const { data: current, error: readErr } = await admin
-    .from("jobs")
-    .select("in_transit_at,delivered_at")
-    .eq("company_id", companyId)
-    .eq("job_number", jobNumber)
-    .maybeSingle();
+  const allowedKeys = new Set([
+    "pickup",
+    "dropoff",
+    "notes",
+    "scheduled_date",
+    "window_start",
+    "window_end",
+  ]);
 
-  if (readErr) return NextResponse.json({ error: readErr.message }, { status: 500 });
-  if (!current) return NextResponse.json({ error: "Job not found" }, { status: 404 });
+  const patch: Record<string, any> = {};
 
-  const patch: Record<string, any> = { status };
-  if (status === "in_transit" && !current.in_transit_at) patch.in_transit_at = nowIso();
-  if (status === "delivered" && !current.delivered_at) patch.delivered_at = nowIso();
+  if (body && typeof body === "object") {
+    for (const [key, value] of Object.entries(body)) {
+      if (!allowedKeys.has(key)) continue;
+      patch[key] = value;
+    }
+  }
+
+  if (Object.keys(patch).length === 0) {
+    return NextResponse.json({ error: "No updatable fields provided" }, { status: 400 });
+  }
 
   const { data: job, error } = await admin
     .from("jobs")
