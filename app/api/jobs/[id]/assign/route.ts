@@ -4,10 +4,7 @@ import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 import { createClient } from "@supabase/supabase-js";
 
-const admin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+const admin = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
 async function getAuthedUser() {
   const cookieStore = await cookies();
@@ -50,10 +47,10 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     return NextResponse.json({ error: "driverId and vehicleId required" }, { status: 400 });
   }
 
-  // Read current job status (lifecycle enforcement)
+  // Read current job (lifecycle + assignment audit)
   const { data: currentJob, error: readErr } = await admin
     .from("jobs")
-    .select("id,status")
+    .select("id,status,driver_id,vehicle_id,assigned_at")
     .eq("company_id", companyId)
     .eq("job_number", jobNumber)
     .maybeSingle();
@@ -93,12 +90,22 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   if (vErr) return NextResponse.json({ error: vErr.message }, { status: 500 });
   if (!vehicleRow) return NextResponse.json({ error: "Invalid vehicle" }, { status: 400 });
 
+  const prevDriverId = currentJob.driver_id ?? null;
+  const prevVehicleId = currentJob.vehicle_id ?? null;
+
+  const isReassign =
+    Boolean(prevDriverId && prevDriverId !== driverId) ||
+    Boolean(prevVehicleId && prevVehicleId !== vehicleId);
+
+  const now = new Date().toISOString();
+
+  // Keep simple: always refresh assigned_at
   const { data: job, error } = await admin
     .from("jobs")
     .update({
       driver_id: driverId,
       vehicle_id: vehicleId,
-      assigned_at: new Date().toISOString(),
+      assigned_at: now,
       status: "assigned",
     })
     .eq("company_id", companyId)
@@ -115,6 +122,28 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   if (!job) return NextResponse.json({ error: "Job not found" }, { status: 404 });
+
+  // ✅ Activity log (non-blocking)
+  try {
+    const { error: actErr } = await admin.from("activity").insert({
+      company_id: companyId,
+      job_id: currentJob.id, // activity uses job UUID
+      action: isReassign ? "job.reassigned" : "job.assigned",
+      actor_user_id: user.id,
+      meta: {
+        job_number: jobNumber,
+        driver_id: driverId,
+        vehicle_id: vehicleId,
+        prev_driver_id: prevDriverId,
+        prev_vehicle_id: prevVehicleId,
+        assigned_at: now,
+      },
+    });
+
+    if (actErr) console.error("activity insert failed:", actErr.message);
+  } catch (e) {
+    console.error("activity insert failed:", e);
+  }
 
   return NextResponse.json({ job });
 }

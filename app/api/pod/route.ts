@@ -48,6 +48,23 @@ function safeName(name: string) {
   return name.replace(/[^\w.\-() ]+/g, "_");
 }
 
+function normalizeJobNumber(v: string) {
+  return v.trim();
+}
+
+async function assertJobNumberOwned(companyId: string, jobNumber: string) {
+  const { data, error } = await admin
+    .from("jobs")
+    .select("id, job_number")
+    .eq("company_id", companyId)
+    .eq("job_number", jobNumber)
+    .maybeSingle();
+
+  if (error) return { ok: false as const, error: error.message };
+  if (!data) return { ok: false as const, error: "Invalid jobId (job_number not found)" };
+  return { ok: true as const, jobUuid: data.id as string, jobNumber: data.job_number as string };
+}
+
 /* ---------------- GET: list PODs ---------------- */
 export async function GET(req: Request) {
   const user = await getAuthedUser();
@@ -57,19 +74,25 @@ export async function GET(req: Request) {
   if (!companyId) return NextResponse.json({ error: "No company profile" }, { status: 403 });
 
   const { searchParams } = new URL(req.url);
-  const jobId = searchParams.get("jobId");
-  if (!jobId) return NextResponse.json({ error: "jobId required" }, { status: 400 });
+  const raw = String(searchParams.get("jobId") ?? "");
+  const jobNumber = normalizeJobNumber(raw);
+
+  if (!jobNumber) return NextResponse.json({ error: "jobId required" }, { status: 400 });
+
+  // ✅ ensure job_number belongs to this company
+  const owned = await assertJobNumberOwned(companyId, jobNumber);
+  if (!owned.ok) return NextResponse.json({ error: owned.error }, { status: 400 });
 
   const { data: rows, error } = await admin
     .from("pod_files")
     .select("*")
     .eq("company_id", companyId)
-    .eq("job_id", jobId)
+    .eq("job_id", jobNumber) // ✅ stored as JOB-xxxx text
     .order("created_at", { ascending: false });
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  const items = [];
+  const items: any[] = [];
   for (const r of rows ?? []) {
     const { data: signed, error: signErr } = await admin.storage
       .from(BUCKET)
@@ -90,11 +113,15 @@ export async function POST(req: Request) {
   if (!companyId) return NextResponse.json({ error: "No company profile" }, { status: 403 });
 
   const fd = await req.formData();
-  const jobId = String(fd.get("jobId") || "");
+  const jobNumber = normalizeJobNumber(String(fd.get("jobId") || ""));
   const file = fd.get("file");
 
-  if (!jobId) return NextResponse.json({ error: "jobId required" }, { status: 400 });
+  if (!jobNumber) return NextResponse.json({ error: "jobId required" }, { status: 400 });
   if (!(file instanceof File)) return NextResponse.json({ error: "file required" }, { status: 400 });
+
+  // ✅ ensure job_number belongs to this company
+  const owned = await assertJobNumberOwned(companyId, jobNumber);
+  if (!owned.ok) return NextResponse.json({ error: owned.error }, { status: 400 });
 
   const sizeMb = file.size / (1024 * 1024);
   if (sizeMb > MAX_MB) {
@@ -104,8 +131,8 @@ export async function POST(req: Request) {
   const filename = safeName(file.name);
   const ext = filename.includes(".") ? filename.split(".").pop() : "bin";
 
-  // isolate by company as well
-  const filePath = `companies/${companyId}/jobs/${jobId}/${crypto.randomUUID()}.${ext}`;
+  // ✅ keep path consistent with existing rows (jobNumber)
+  const filePath = `companies/${companyId}/jobs/${jobNumber}/${crypto.randomUUID()}.${ext}`;
 
   const { error: upErr } = await admin.storage.from(BUCKET).upload(filePath, file, {
     contentType: file.type || "application/octet-stream",
@@ -117,7 +144,7 @@ export async function POST(req: Request) {
     .from("pod_files")
     .insert({
       company_id: companyId,
-      job_id: jobId,
+      job_id: jobNumber, // ✅ stored as job_number text
       file_name: filename,
       file_path: filePath,
       mime_type: file.type,
@@ -134,6 +161,29 @@ export async function POST(req: Request) {
 
   if (signErr) return NextResponse.json({ error: signErr.message }, { status: 500 });
 
+  // ✅ Activity log (non-blocking)
+  // IMPORTANT: your Activity UI expects job UUID in /api/activity
+  // So we log BOTH: job_number in meta + use job UUID as job_id if your activity table expects UUID.
+  try {
+    const { error: actErr } = await admin.from("activity").insert({
+      company_id: companyId,
+      job_id: owned.jobUuid, // ✅ activity should use UUID
+      action: "pod.uploaded",
+      actor_user_id: user.id,
+      meta: {
+        job_number: jobNumber,
+        pod_id: row.id,
+        file_name: row.file_name,
+        file_path: row.file_path,
+        mime_type: row.mime_type,
+        size: row.size,
+      },
+    });
+    if (actErr) console.error("activity insert failed:", actErr.message);
+  } catch (e) {
+    console.error("activity insert failed:", e);
+  }
+
   return NextResponse.json({ item: { ...row, signedUrl: signed.signedUrl } });
 }
 
@@ -146,7 +196,7 @@ export async function DELETE(req: Request) {
   if (!companyId) return NextResponse.json({ error: "No company profile" }, { status: 403 });
 
   const body = await req.json().catch(() => null);
-  const podId = body?.podId as string | undefined;
+  const podId = String(body?.podId ?? "").trim();
   if (!podId) return NextResponse.json({ error: "podId required" }, { status: 400 });
 
   const { data: row, error: getErr } = await admin
@@ -158,12 +208,39 @@ export async function DELETE(req: Request) {
 
   if (getErr || !row) return NextResponse.json({ error: "POD not found" }, { status: 404 });
 
+  const jobNumber = String(row.job_id ?? "").trim();
+  if (!jobNumber) return NextResponse.json({ error: "Invalid POD link" }, { status: 400 });
+
+  // ✅ ensure job_number belongs to this company
+  const owned = await assertJobNumberOwned(companyId, jobNumber);
+  if (!owned.ok) return NextResponse.json({ error: owned.error }, { status: 400 });
+
   const { error: rmErr } = await admin.storage.from(BUCKET).remove([row.file_path]);
   if (rmErr) return NextResponse.json({ error: rmErr.message }, { status: 500 });
 
   const { error: delErr } = await admin.from("pod_files").delete().eq("id", podId);
   if (delErr) return NextResponse.json({ error: delErr.message }, { status: 500 });
 
+  // ✅ Activity log (non-blocking)
+  try {
+    const { error: actErr } = await admin.from("activity").insert({
+      company_id: companyId,
+      job_id: owned.jobUuid, // ✅ activity should use UUID
+      action: "pod.deleted",
+      actor_user_id: user.id,
+      meta: {
+        job_number: jobNumber,
+        pod_id: row.id,
+        file_name: row.file_name,
+        file_path: row.file_path,
+        mime_type: row.mime_type,
+        size: row.size,
+      },
+    });
+    if (actErr) console.error("activity insert failed:", actErr.message);
+  } catch (e) {
+    console.error("activity insert failed:", e);
+  }
+
   return NextResponse.json({ ok: true });
 }
-

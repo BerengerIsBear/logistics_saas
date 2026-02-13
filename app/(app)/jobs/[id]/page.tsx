@@ -42,13 +42,23 @@ type JobApiRow = {
 
 type PodRow = {
   id: string;
-  job_id: string;
+  job_id: string; // NOTE: stored as job_number TEXT (JOB-xxxx) in DB
   file_name: string;
   file_path: string;
   mime_type: string | null;
   size: number | null;
   created_at: string;
   signedUrl: string | null;
+};
+
+type ActivityRow = {
+  id: string;
+  company_id: string;
+  job_id: string; // NOTE: activity uses job UUID
+  action: string;
+  actor_user_id: string | null;
+  meta: any | null;
+  created_at: string;
 };
 
 type Driver = { id: string; name: string; phone?: string | null };
@@ -62,8 +72,39 @@ function formatBytes(bytes: number) {
   return `${v.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
 }
 
+function formatDateTime(iso?: string | null) {
+  if (!iso) return "-";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return String(iso);
+  return d.toLocaleString();
+}
+
+function labelAction(action: string) {
+  switch (action) {
+    case "job.created":
+      return "Job created";
+    case "job.updated":
+      return "Job updated";
+    case "job.assigned":
+      return "Assigned";
+    case "job.reassigned":
+      return "Reassigned";
+    case "job.started":
+      return "Started";
+    case "job.completed":
+      return "Completed";
+    case "pod.uploaded":
+      return "POD uploaded";
+    case "pod.deleted":
+      return "POD deleted";
+    default:
+      return action;
+  }
+}
+
 export default function JobDetailsPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
+  const jobNumberFromUrl = decodeURIComponent(id);
 
   const [job, setJob] = useState<JobApiRow | null>(null);
   const [loadingJob, setLoadingJob] = useState(true);
@@ -85,9 +126,13 @@ export default function JobDetailsPage({ params }: { params: Promise<{ id: strin
   const [podError, setPodError] = useState<string>("");
   const [uploading, setUploading] = useState(false);
 
+  const [activity, setActivity] = useState<ActivityRow[]>([]);
+  const [activityLoading, setActivityLoading] = useState(false);
+  const [activityError, setActivityError] = useState("");
+
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  const title = useMemo(() => job?.job_number ?? id, [job?.job_number, id]);
+  const title = useMemo(() => job?.job_number ?? jobNumberFromUrl, [job?.job_number, jobNumberFromUrl]);
   const subtitle = useMemo(
     () => job?.customers?.name ?? job?.customer ?? "",
     [job?.customers?.name, job?.customer]
@@ -99,11 +144,13 @@ export default function JobDetailsPage({ params }: { params: Promise<{ id: strin
     setLoadingJob(true);
     setJobError("");
     try {
-      const res = await fetch(`/api/jobs/${encodeURIComponent(id)}`, { cache: "no-store" });
+      const res = await fetch(`/api/jobs/${encodeURIComponent(jobNumberFromUrl)}`, { cache: "no-store" });
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error || "Failed to load job");
       setJob(json.job as JobApiRow);
-      setStatus((json.job?.status as JobStatus) ?? "pending");
+
+      const s = (json.job?.status as JobStatus) ?? "pending";
+      setStatus(s);
 
       setDriverId(json.job?.driver_id ?? "");
       setVehicleId(json.job?.vehicle_id ?? "");
@@ -118,7 +165,7 @@ export default function JobDetailsPage({ params }: { params: Promise<{ id: strin
   useEffect(() => {
     loadJob();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]);
+  }, [jobNumberFromUrl]);
 
   useEffect(() => {
     (async () => {
@@ -135,11 +182,11 @@ export default function JobDetailsPage({ params }: { params: Promise<{ id: strin
     })();
   }, []);
 
-  async function loadPods(jobUuidOrJobNumber: string) {
+  async function loadPods(jobNumber: string) {
     setPodError("");
     setPodLoading(true);
     try {
-      const res = await fetch(`/api/pod?jobId=${encodeURIComponent(jobUuidOrJobNumber)}`, {
+      const res = await fetch(`/api/pod?jobId=${encodeURIComponent(jobNumber)}`, {
         cache: "no-store",
       });
       const json = await res.json();
@@ -147,14 +194,36 @@ export default function JobDetailsPage({ params }: { params: Promise<{ id: strin
       setPods(json.items || []);
     } catch (e: any) {
       setPodError(e?.message || "Failed to load POD");
+      setPods([]);
     } finally {
       setPodLoading(false);
     }
   }
 
+  async function loadActivity(jobUuid: string) {
+    setActivityError("");
+    setActivityLoading(true);
+    try {
+      const res = await fetch(`/api/activity?jobId=${encodeURIComponent(jobUuid)}`, {
+        cache: "no-store",
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error || "Failed to load activity");
+      setActivity((json.items ?? []) as ActivityRow[]);
+    } catch (e: any) {
+      setActivityError(e?.message || "Failed to load activity");
+      setActivity([]);
+    } finally {
+      setActivityLoading(false);
+    }
+  }
+
   useEffect(() => {
     if (!job) return;
-    loadPods(job.id || id);
+    // ✅ POD: use job_number because pod_files.job_id is TEXT storing JOB-xxxx
+    loadPods(job.job_number || jobNumberFromUrl);
+    // ✅ Activity: use job UUID
+    loadActivity(job.id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [job?.id]);
 
@@ -164,7 +233,7 @@ export default function JobDetailsPage({ params }: { params: Promise<{ id: strin
     setProgressing(true);
 
     try {
-      const res = await fetch(`/api/jobs/${encodeURIComponent(id)}/progress`, {
+      const res = await fetch(`/api/jobs/${encodeURIComponent(jobNumberFromUrl)}/progress`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action }),
@@ -195,7 +264,7 @@ export default function JobDetailsPage({ params }: { params: Promise<{ id: strin
     setAssigning(true);
 
     try {
-      const res = await fetch(`/api/jobs/${encodeURIComponent(id)}/assign`, {
+      const res = await fetch(`/api/jobs/${encodeURIComponent(jobNumberFromUrl)}/assign`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ driverId, vehicleId }),
@@ -232,7 +301,8 @@ export default function JobDetailsPage({ params }: { params: Promise<{ id: strin
     setUploading(true);
 
     try {
-      const jobKey = job?.id ?? id;
+      // ✅ IMPORTANT: send job_number, not UUID
+      const jobKey = job?.job_number ?? jobNumberFromUrl;
 
       for (const file of files) {
         const fd = new FormData();
@@ -245,6 +315,9 @@ export default function JobDetailsPage({ params }: { params: Promise<{ id: strin
 
         setPods((prev) => [json.item as PodRow, ...prev]);
       }
+
+      // refresh activity (activity uses job uuid)
+      if (job?.id) await loadActivity(job.id);
     } catch (e: any) {
       setPodError(e?.message || "Upload failed");
     } finally {
@@ -267,6 +340,8 @@ export default function JobDetailsPage({ params }: { params: Promise<{ id: strin
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error || "Delete failed");
+
+      if (job?.id) await loadActivity(job.id);
     } catch (e: any) {
       setPods(prev);
       setPodError(e?.message || "Delete failed");
@@ -294,7 +369,7 @@ export default function JobDetailsPage({ params }: { params: Promise<{ id: strin
       <PageShell>
         <PageHeader
           title="Job not found"
-          subtitle={jobError || `No job found for ID: ${id}`}
+          subtitle={jobError || `No job found for ID: ${jobNumberFromUrl}`}
           action={
             <Link href="/jobs">
               <Button variant="outline">Back to Jobs</Button>
@@ -342,6 +417,7 @@ export default function JobDetailsPage({ params }: { params: Promise<{ id: strin
       />
 
       <div className="grid gap-6 lg:grid-cols-3">
+        {/* LEFT: Job + workflow + activity */}
         <Card className="lg:col-span-2">
           <CardHeader>
             <div className="flex items-center justify-between gap-3">
@@ -463,11 +539,141 @@ export default function JobDetailsPage({ params }: { params: Promise<{ id: strin
 
               {savedMsg ? <div className="mt-2 text-sm text-neutral-700">{savedMsg}</div> : null}
             </div>
+
+            {/* Activity */}
+            <div className="mt-6 rounded-xl border bg-white p-3">
+              <div className="flex items-center justify-between">
+                <div className="text-sm font-medium text-neutral-900">Activity</div>
+                <Button
+                  variant="outline"
+                  type="button"
+                  onClick={() => job?.id && loadActivity(job.id)}
+                  disabled={activityLoading}
+                >
+                  {activityLoading ? "Refreshing..." : "Refresh"}
+                </Button>
+              </div>
+
+              {activityError ? (
+                <div className="mt-2 text-sm text-red-600">{activityError}</div>
+              ) : null}
+
+              {activityLoading ? (
+                <div className="mt-2 text-sm text-neutral-600">Loading activity...</div>
+              ) : null}
+
+              {!activityLoading && activity.length === 0 ? (
+                <div className="mt-2 text-sm text-neutral-600">No activity yet.</div>
+              ) : null}
+
+              {!activityLoading && activity.length > 0 ? (
+                <div className="mt-3 space-y-2">
+                  {activity.map((a) => (
+                    <div key={a.id} className="rounded-lg border bg-white p-2">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="text-sm font-medium text-neutral-900">
+                          {labelAction(a.action)}
+                        </div>
+                        <div className="text-xs text-neutral-500">{formatDateTime(a.created_at)}</div>
+                      </div>
+
+                      {a.meta ? (
+                        <pre className="mt-2 overflow-auto rounded-md bg-neutral-50 p-2 text-xs text-neutral-700">
+                          {JSON.stringify(a.meta, null, 2)}
+                        </pre>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </div>
           </CardContent>
         </Card>
 
-        {/* POD (unchanged) */}
-        {/* ...the rest of your POD UI stays the same... */}
+        {/* RIGHT: POD */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-sm font-medium text-neutral-900">POD</div>
+                <div className="mt-1 text-sm text-neutral-500">
+                  Upload and view proof of delivery.
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  className="hidden"
+                  multiple
+                  onChange={onPickFiles}
+                  accept="image/*,application/pdf"
+                />
+                <Button variant="outline" type="button" onClick={openPicker} disabled={uploading}>
+                  {uploading ? "Uploading..." : "Upload"}
+                </Button>
+              </div>
+            </div>
+          </CardHeader>
+
+          <CardContent>
+            {podError ? <div className="mb-2 text-sm text-red-600">{podError}</div> : null}
+
+            <div className="flex items-center justify-between">
+              <div className="text-xs text-neutral-500">
+                Job key: <span className="font-medium text-neutral-900">{job.job_number}</span>
+              </div>
+              <Button
+                variant="outline"
+                type="button"
+                onClick={() => loadPods(job.job_number)}
+                disabled={podLoading}
+              >
+                {podLoading ? "Refreshing..." : "Refresh"}
+              </Button>
+            </div>
+
+            {podLoading ? <div className="mt-2 text-sm text-neutral-600">Loading POD...</div> : null}
+
+            {!podLoading && pods.length === 0 ? (
+              <div className="mt-2 text-sm text-neutral-600">No POD uploaded yet.</div>
+            ) : null}
+
+            <div className="mt-3 space-y-2">
+              {pods.map((p) => (
+                <div key={p.id} className="rounded-lg border bg-white p-2">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-medium text-neutral-900">{p.file_name}</div>
+                      <div className="mt-1 text-xs text-neutral-500">
+                        {p.size ? formatBytes(p.size) : ""}{" "}
+                        {p.mime_type ? `• ${p.mime_type}` : ""} • {formatDateTime(p.created_at)}
+                      </div>
+
+                      {p.signedUrl ? (
+                        <a
+                          className="mt-2 inline-block text-sm text-neutral-900 underline"
+                          href={p.signedUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          View
+                        </a>
+                      ) : (
+                        <div className="mt-2 text-xs text-neutral-500">No signed URL</div>
+                      )}
+                    </div>
+
+                    <Button variant="outline" type="button" onClick={() => removePod(p.id)}>
+                      Delete
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
       </div>
     </PageShell>
   );
