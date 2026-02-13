@@ -12,7 +12,7 @@ import { StatusBadge } from "@/components/ui/StatusBadge";
 type JobStatus = "pending" | "assigned" | "in_transit" | "delivered";
 
 type JobRow = {
-  id: string;
+  id: string; // UUID in DB (not used for progress)
   job_number: string;
 
   customer?: string | null;
@@ -33,7 +33,7 @@ type JobRow = {
 };
 
 type UiJob = {
-  id: string;
+  jobNumber: string; // JOB-XXXX (URL + progress key)
   customer: string;
   pickup: string;
   dropoff: string;
@@ -46,7 +46,7 @@ type UiJob = {
 
 function toUiJob(j: JobRow): UiJob {
   return {
-    id: j.job_number,
+    jobNumber: j.job_number,
     customer: j?.customers?.name ?? j?.customer ?? "-",
     pickup: j.pickup,
     dropoff: j.dropoff,
@@ -66,13 +66,27 @@ function formatWindow(start?: string | null, end?: string | null) {
   return s || e;
 }
 
+function todayYMD() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function isLate(scheduled?: string | null) {
+  if (!scheduled) return false;
+  const t = todayYMD();
+  return scheduled < t;
+}
+
 export default function DriverJobsPage() {
   const [scope, setScope] = useState<"today" | "upcoming">("today");
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [rows, setRows] = useState<JobRow[]>([]);
-  const [actingId, setActingId] = useState<string | null>(null);
+  const [actingJobNumber, setActingJobNumber] = useState<string | null>(null);
 
   const jobs = useMemo(() => rows.map(toUiJob), [rows]);
 
@@ -87,11 +101,13 @@ export default function DriverJobsPage() {
     setLoading(true);
 
     try {
-      const res = await fetch(`/api/driver-jobs?scope=${scope}`, {
-        cache: "no-store",
-      });
+      const res = await fetch(`/api/driver-jobs?scope=${scope}`, { cache: "no-store" });
       const json = await res.json();
+
+      if (res.status === 401) throw new Error("Session expired. Please login again.");
+      if (res.status === 403) throw new Error(json?.error || "Forbidden");
       if (!res.ok) throw new Error(json?.error || "Failed to load jobs");
+
       setRows((json.jobs ?? []) as JobRow[]);
     } catch (e: any) {
       setError(e?.message || "Failed to load jobs");
@@ -103,7 +119,7 @@ export default function DriverJobsPage() {
   }
 
   async function progress(jobNumber: string, action: "start" | "complete") {
-    setActingId(jobNumber);
+    setActingJobNumber(jobNumber);
     setError("");
 
     try {
@@ -114,13 +130,16 @@ export default function DriverJobsPage() {
       });
 
       const json = await res.json();
+
+      if (res.status === 401) throw new Error("Session expired. Please login again.");
+      if (res.status === 403) throw new Error(json?.error || "Forbidden");
       if (!res.ok) throw new Error(json?.error || "Action failed");
 
       await load();
     } catch (e: any) {
       setError(e?.message || "Action failed");
     } finally {
-      setActingId(null);
+      setActingJobNumber(null);
     }
   }
 
@@ -130,22 +149,26 @@ export default function DriverJobsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scope]);
 
-  // auto refresh polling (so driver sees new assignments)
+  // auto refresh polling (driver sees new assignments)
   useEffect(() => {
-    // clear existing
     if (pollRef.current) window.clearInterval(pollRef.current);
 
     pollRef.current = window.setInterval(() => {
       // don’t poll while doing an action
-      if (!actingId) load();
-    }, 20000); // 20s
+      if (actingJobNumber) return;
+
+      // don’t poll when tab is hidden
+      if (typeof document !== "undefined" && document.hidden) return;
+
+      load();
+    }, 20000);
 
     return () => {
       if (pollRef.current) window.clearInterval(pollRef.current);
       pollRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scope, actingId]);
+  }, [scope, actingJobNumber]);
 
   return (
     <PageShell>
@@ -153,9 +176,16 @@ export default function DriverJobsPage() {
         title="My Jobs"
         subtitle="Jobs assigned to you (today / upcoming)"
         action={
-          <Link href="/jobs">
-            <Button variant="outline">Back to Jobs</Button>
-          </Link>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={load} disabled={loading}>
+              {loading ? "Refreshing..." : "Refresh"}
+            </Button>
+
+            {/* Optional: keep or remove. Drivers usually don’t need dispatcher jobs page */}
+            <Link href="/jobs">
+              <Button variant="outline">Back</Button>
+            </Link>
+          </div>
         }
       />
 
@@ -182,12 +212,6 @@ export default function DriverJobsPage() {
               </Button>
             </div>
 
-            <div className="mt-3">
-              <Button variant="outline" onClick={load} disabled={loading}>
-                {loading ? "Refreshing..." : "Refresh"}
-              </Button>
-            </div>
-
             {error ? <div className="mt-4 text-sm text-red-600">{error}</div> : null}
             <div className="mt-3 text-xs text-neutral-500">Auto refresh every 20s</div>
           </CardContent>
@@ -210,17 +234,25 @@ export default function DriverJobsPage() {
               <div className="space-y-3">
                 {jobs.map((j) => {
                   const win = formatWindow(j.window_start, j.window_end);
-
-                  const isActing = actingId === j.id;
+                  const isActing = actingJobNumber === j.jobNumber;
+                  const late = j.status !== "delivered" && isLate(j.scheduled_date);
 
                   return (
                     <div
-                      key={j.id}
+                      key={j.jobNumber}
                       className="rounded-xl border border-neutral-200 p-4 hover:bg-neutral-50"
                     >
                       <div className="flex items-start justify-between gap-3">
-                        <Link href={`/jobs/${j.id}`} className="block min-w-0 flex-1">
-                          <div className="text-sm font-medium text-neutral-900">{j.id}</div>
+                        <Link href={`/jobs/${j.jobNumber}`} className="block min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <div className="text-sm font-medium text-neutral-900">{j.jobNumber}</div>
+                            {late ? (
+                              <span className="rounded-full bg-red-50 px-2 py-0.5 text-xs font-medium text-red-700">
+                                Late
+                              </span>
+                            ) : null}
+                          </div>
+
                           <div className="mt-1 text-sm text-neutral-600">{j.customer}</div>
 
                           <div className="mt-2 text-xs text-neutral-500">
@@ -247,7 +279,7 @@ export default function DriverJobsPage() {
                               onClick={(e) => {
                                 e.preventDefault();
                                 e.stopPropagation();
-                                progress(j.id, "start");
+                                progress(j.jobNumber, "start");
                               }}
                             >
                               {isActing ? "Starting..." : "Start"}
@@ -261,7 +293,7 @@ export default function DriverJobsPage() {
                               onClick={(e) => {
                                 e.preventDefault();
                                 e.stopPropagation();
-                                progress(j.id, "complete");
+                                progress(j.jobNumber, "complete");
                               }}
                             >
                               {isActing ? "Completing..." : "Complete"}

@@ -5,7 +5,7 @@ import { createServerClient } from "@supabase/ssr";
 import { createClient } from "@supabase/supabase-js";
 
 const admin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
@@ -36,8 +36,8 @@ async function getProfile(userId: string) {
     .eq("id", userId)
     .maybeSingle();
 
-  if (error) return { data: null as any, error: error.message };
-  return { data, error: null as string | null };
+  if (error) return null;
+  return data as { company_id: string; driver_id: string | null } | null;
 }
 
 function todayYMD() {
@@ -50,40 +50,30 @@ function todayYMD() {
 
 export async function GET(req: Request) {
   const user = await getAuthedUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-  const prof = await getProfile(user.id);
-
-  if (!prof.data?.company_id) {
-    return NextResponse.json(
-      {
-        error: "No company profile",
-        userId: user.id,
-        profileFound: !!prof.data,
-        profileError: prof.error,
-        company_id: prof.data?.company_id ?? null,
-        driver_id: prof.data?.driver_id ?? null,
-      },
-      { status: 403 }
-    );
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  if (!prof.data.driver_id) {
+  const profile = await getProfile(user.id);
+
+  if (!profile?.company_id) {
+    return NextResponse.json({ error: "No company profile" }, { status: 403 });
+  }
+
+  if (!profile.driver_id) {
     return NextResponse.json(
-      {
-        error: "Your user is not linked to a driver yet (profiles.driver_id is missing)",
-        userId: user.id,
-      },
+      { error: "User not linked to driver" },
       { status: 403 }
     );
   }
 
   const { searchParams } = new URL(req.url);
   const scope = String(searchParams.get("scope") ?? "today").trim();
+  const statusFilter = String(searchParams.get("status") ?? "").trim();
 
   const today = todayYMD();
 
-  let q = admin
+  let query = admin
     .from("jobs")
     .select(
       `
@@ -93,24 +83,35 @@ export async function GET(req: Request) {
         vehicles(plate_no)
       `
     )
-    .eq("company_id", prof.data.company_id)
-    .eq("driver_id", prof.data.driver_id)
-    .order("scheduled_date", { ascending: true })
-    .order("window_start", { ascending: true })
-    .order("created_at", { ascending: false });
+    .eq("company_id", profile.company_id)
+    .eq("driver_id", profile.driver_id);
 
-  // ✅ practical ops logic:
-  // "today" means active jobs scheduled up to today (includes late jobs), excluding delivered
+  // Operational scope logic
   if (scope === "today") {
-    q = q.lte("scheduled_date", today).neq("status", "delivered");
+    query = query
+      .lte("scheduled_date", today)
+      .neq("status", "delivered");
   } else if (scope === "upcoming") {
-    q = q.gt("scheduled_date", today).neq("status", "delivered");
+    query = query
+      .gt("scheduled_date", today)
+      .neq("status", "delivered");
   } else {
     return NextResponse.json({ error: "Invalid scope" }, { status: 400 });
   }
 
-  const { data: rows, error } = await q;
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  // Optional status filter (future flexibility)
+  if (statusFilter) {
+    query = query.eq("status", statusFilter);
+  }
+
+  const { data: rows, error } = await query
+    .order("scheduled_date", { ascending: true })
+    .order("window_start", { ascending: true })
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
 
   return NextResponse.json({ jobs: rows ?? [] });
 }

@@ -2,8 +2,8 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useMemo, useState } from "react";
 
 import { PageShell } from "@/components/PageShell";
 import { PageHeader } from "@/components/PageHeader";
@@ -11,8 +11,22 @@ import { Card, CardContent, CardHeader } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 
+function looksLikeEmail(v: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+}
+
 export default function NewCustomerPage() {
   const router = useRouter();
+  const sp = useSearchParams();
+
+  const next = useMemo(() => {
+    const n = sp.get("next");
+    // basic safety: only allow internal paths
+    if (n && n.startsWith("/")) return n;
+    return "/customers";
+  }, [sp]);
+
+  const backHref = next === "/customers" ? "/customers" : next;
 
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
@@ -24,23 +38,35 @@ export default function NewCustomerPage() {
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setMsg("");
+
+    const n = name.trim();
+    const p = phone.trim();
+    const em = email.trim();
+
+    if (!n) {
+      setMsg("Name is required");
+      return;
+    }
+    if (em && !looksLikeEmail(em)) {
+      setMsg("Invalid email format");
+      return;
+    }
+
     setSaving(true);
 
     try {
       const res = await fetch("/api/customers", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: name.trim(),
-          phone: phone.trim(),
-          email: email.trim(),
-        }),
+        body: JSON.stringify({ name: n, phone: p, email: em }),
       });
 
       const json = await res.json();
+
+      if (res.status === 401) throw new Error("Session expired. Please login again.");
       if (!res.ok) throw new Error(json?.error || "Failed to create customer");
 
-      router.push("/customers");
+      router.push(next);
     } catch (e: any) {
       setMsg(e?.message || "Failed to create customer");
     } finally {
@@ -54,7 +80,7 @@ export default function NewCustomerPage() {
         title="New Customer"
         subtitle="Add a customer so dispatch can reuse contact details."
         action={
-          <Link href="/customers">
+          <Link href={backHref}>
             <Button variant="outline">Back</Button>
           </Link>
         }
@@ -70,17 +96,29 @@ export default function NewCustomerPage() {
           <form onSubmit={onSubmit} className="space-y-4">
             <div>
               <div className="mb-1 text-xs text-neutral-500">Name</div>
-              <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="ABC Trading" />
+              <Input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="ABC Trading"
+              />
             </div>
 
             <div>
               <div className="mb-1 text-xs text-neutral-500">Phone</div>
-              <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+65 9xxxxxxx" />
+              <Input
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                placeholder="+65 9xxxxxxx"
+              />
             </div>
 
             <div>
               <div className="mb-1 text-xs text-neutral-500">Email</div>
-              <Input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="ops@company.com" />
+              <Input
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="ops@company.com"
+              />
             </div>
 
             <div className="flex items-center gap-2">
@@ -88,7 +126,7 @@ export default function NewCustomerPage() {
                 {saving ? "Saving..." : "Create Customer"}
               </Button>
 
-              <Link href="/customers">
+              <Link href={backHref}>
                 <Button variant="outline" type="button">
                   Cancel
                 </Button>

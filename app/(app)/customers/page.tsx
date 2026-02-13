@@ -32,10 +32,14 @@ export default function CustomersPage() {
       const qs = q.trim() ? `?q=${encodeURIComponent(q.trim())}` : "";
       const res = await fetch(`/api/customers${qs}`, { cache: "no-store" });
       const json = await res.json();
+
+      if (res.status === 401) throw new Error("Session expired. Please login again.");
       if (!res.ok) throw new Error(json?.error || "Failed to load customers");
-      setItems(json.customers || []);
+
+      setItems((json.customers || []) as Customer[]);
     } catch (e: any) {
       setErr(e?.message || "Failed to load customers");
+      setItems([]);
     } finally {
       setLoading(false);
     }
@@ -55,7 +59,7 @@ export default function CustomersPage() {
         subtitle="Keep customer contacts clean so dispatching is faster."
         action={
           <div className="flex gap-2">
-            <Link href="/customers/new">
+            <Link href="/customers/new?next=/customers">
               <Button variant="outline">+ New Customer</Button>
             </Link>
           </div>
@@ -64,7 +68,13 @@ export default function CustomersPage() {
 
       <Card className="mb-4">
         <CardContent>
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              load();
+            }}
+            className="flex flex-col gap-3 sm:flex-row sm:items-center"
+          >
             <div className="flex-1">
               <Input
                 value={q}
@@ -74,7 +84,7 @@ export default function CustomersPage() {
             </div>
 
             <div className="flex gap-2">
-              <Button variant="outline" type="button" onClick={load} disabled={loading}>
+              <Button variant="outline" type="submit" disabled={loading}>
                 {loading ? "Loading..." : "Search"}
               </Button>
 
@@ -85,11 +95,12 @@ export default function CustomersPage() {
                   setQ("");
                   setTimeout(load, 0);
                 }}
+                disabled={loading}
               >
                 Reset
               </Button>
             </div>
-          </div>
+          </form>
 
           <div className="mt-2 flex items-center justify-between text-xs text-neutral-500">
             <div>
@@ -130,7 +141,7 @@ export default function CustomersPage() {
                     <td colSpan={4} className="px-6 py-10 text-center">
                       <div className="text-sm text-neutral-500">No customers yet.</div>
                       <div className="mt-3">
-                        <Link href="/customers/new">
+                        <Link href="/customers/new?next=/customers">
                           <Button variant="primary">Create first customer</Button>
                         </Link>
                       </div>
@@ -143,7 +154,7 @@ export default function CustomersPage() {
                     <td colSpan={4} className="px-6 py-10 text-center">
                       <div className="text-sm text-red-600">{err}</div>
                       <div className="mt-3">
-                        <Button variant="outline" type="button" onClick={load}>
+                        <Button variant="outline" type="button" onClick={load} disabled={loading}>
                           Retry
                         </Button>
                       </div>

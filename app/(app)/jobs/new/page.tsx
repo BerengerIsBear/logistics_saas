@@ -22,15 +22,40 @@ export default function NewJobPage() {
   const [pickup, setPickup] = useState("");
   const [dropoff, setDropoff] = useState("");
   const [scheduledDate, setScheduledDate] = useState(new Date().toISOString().slice(0, 10));
+  const [windowStart, setWindowStart] = useState("");
+  const [windowEnd, setWindowEnd] = useState("");
   const [notes, setNotes] = useState("");
 
+  const [loadingCustomers, setLoadingCustomers] = useState(false);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState("");
 
   async function loadCustomers() {
-    const res = await fetch("/api/customers", { cache: "no-store" });
-    const json = await res.json();
-    if (res.ok) setCustomers(json.customers || []);
+    setLoadingCustomers(true);
+    setMsg("");
+    try {
+      const res = await fetch("/api/customers", { cache: "no-store" });
+      const json = await res.json();
+
+      if (res.status === 401) {
+        setMsg("Session expired. Please login again.");
+        setCustomers([]);
+        return;
+      }
+      if (res.status === 403) {
+        setMsg(json?.error || "No company profile.");
+        setCustomers([]);
+        return;
+      }
+      if (!res.ok) throw new Error(json?.error || "Failed to load customers");
+
+      setCustomers((json.customers || []) as Customer[]);
+    } catch (e: any) {
+      setMsg(e?.message || "Failed to load customers");
+      setCustomers([]);
+    } finally {
+      setLoadingCustomers(false);
+    }
   }
 
   useEffect(() => {
@@ -44,6 +69,8 @@ export default function NewJobPage() {
 
     try {
       if (!customerId) throw new Error("Select a customer");
+      if (!pickup.trim()) throw new Error("Pickup is required");
+      if (!dropoff.trim()) throw new Error("Drop-off is required");
 
       const res = await fetch("/api/jobs", {
         method: "POST",
@@ -53,11 +80,15 @@ export default function NewJobPage() {
           pickup: pickup.trim(),
           dropoff: dropoff.trim(),
           scheduled_date: scheduledDate,
-          notes: notes.trim(),
+          window_start: windowStart.trim() || null,
+          window_end: windowEnd.trim() || null,
+          notes: notes.trim() || null,
         }),
       });
 
       const json = await res.json();
+
+      if (res.status === 401) throw new Error("Session expired. Please login again.");
       if (!res.ok) throw new Error(json?.error || "Failed to create job");
 
       router.push(`/jobs/${json.job.job_number}`);
@@ -67,6 +98,8 @@ export default function NewJobPage() {
       setSaving(false);
     }
   }
+
+  const noCustomers = !loadingCustomers && customers.length === 0;
 
   return (
     <PageShell>
@@ -92,45 +125,103 @@ export default function NewJobPage() {
           <form onSubmit={onSubmit} className="space-y-4">
             <div>
               <div className="mb-1 text-xs text-neutral-500">Customer</div>
-              <div className="flex gap-2">
-                <select
-                  className="w-full rounded-md border bg-white px-3 py-2 text-sm text-neutral-900"
-                  value={customerId}
-                  onChange={(e) => setCustomerId(e.target.value)}
-                >
-                  <option value="">Select customer</option>
-                  {customers.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
 
-                <Link href="/customers/new">
-                  <Button variant="outline" type="button">+ Customer</Button>
-                </Link>
+              {noCustomers ? (
+                <div className="rounded-lg border bg-white p-3">
+                  <div className="text-sm text-neutral-900">No customers yet.</div>
+                  <div className="mt-1 text-xs text-neutral-600">
+                    Create a customer first, then come back to create jobs.
+                  </div>
+                  <div className="mt-3 flex items-center gap-2">
+                    <Link href="/customers/new?next=/jobs/new">
+                      <Button variant="primary" type="button">
+                        + Create Customer
+                      </Button>
+                    </Link>
+                    <Button
+                      variant="outline"
+                      type="button"
+                      onClick={loadCustomers}
+                      disabled={loadingCustomers}
+                    >
+                      {loadingCustomers ? "Refreshing..." : "Refresh"}
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex gap-2">
+                  <select
+                    className="w-full rounded-md border bg-white px-3 py-2 text-sm text-neutral-900"
+                    value={customerId}
+                    onChange={(e) => setCustomerId(e.target.value)}
+                    disabled={loadingCustomers}
+                  >
+                    <option value="">{loadingCustomers ? "Loading..." : "Select customer"}</option>
+                    {customers.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+
+                  <Link href="/customers/new?next=/jobs/new">
+                    <Button variant="outline" type="button">
+                      + Customer
+                    </Button>
+                  </Link>
+                </div>
+              )}
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div className="sm:col-span-1">
+                <div className="mb-1 text-xs text-neutral-500">Scheduled date</div>
+                <input
+                  type="date"
+                  value={scheduledDate}
+                  onChange={(e) => setScheduledDate(e.target.value)}
+                  className="w-full rounded-md border bg-white px-3 py-2 text-sm text-neutral-900"
+                  required
+                />
+              </div>
+
+              <div className="sm:col-span-1">
+                <div className="mb-1 text-xs text-neutral-500">Window start</div>
+                <input
+                  type="time"
+                  value={windowStart}
+                  onChange={(e) => setWindowStart(e.target.value)}
+                  className="w-full rounded-md border bg-white px-3 py-2 text-sm text-neutral-900"
+                />
+              </div>
+
+              <div className="sm:col-span-1">
+                <div className="mb-1 text-xs text-neutral-500">Window end</div>
+                <input
+                  type="time"
+                  value={windowEnd}
+                  onChange={(e) => setWindowEnd(e.target.value)}
+                  className="w-full rounded-md border bg-white px-3 py-2 text-sm text-neutral-900"
+                />
               </div>
             </div>
 
             <div>
-              <div className="mb-1 text-xs text-neutral-500">Scheduled date</div>
-              <input
-                type="date"
-                value={scheduledDate}
-                onChange={(e) => setScheduledDate(e.target.value)}
-                className="w-full rounded-md border bg-white px-3 py-2 text-sm text-neutral-900"
-                required
+              <div className="mb-1 text-xs text-neutral-500">Pickup</div>
+              <Input
+                value={pickup}
+                onChange={(e) => setPickup(e.target.value)}
+                placeholder="Tuas Warehouse A"
               />
             </div>
 
             <div>
-              <div className="mb-1 text-xs text-neutral-500">Pickup</div>
-              <Input value={pickup} onChange={(e) => setPickup(e.target.value)} placeholder="Tuas Warehouse A" />
-            </div>
-
-            <div>
               <div className="mb-1 text-xs text-neutral-500">Drop-off</div>
-              <Input value={dropoff} onChange={(e) => setDropoff(e.target.value)} placeholder="Changi Cargo Complex" />
+              <Input
+                value={dropoff}
+                onChange={(e) => setDropoff(e.target.value)}
+                placeholder="Changi Cargo Complex"
+              />
             </div>
 
             <div>
@@ -142,13 +233,15 @@ export default function NewJobPage() {
               <Button
                 variant="primary"
                 type="submit"
-                disabled={saving || !customerId || !pickup.trim() || !dropoff.trim()}
+                disabled={saving || noCustomers || !customerId || !pickup.trim() || !dropoff.trim()}
               >
                 {saving ? "Saving..." : "Create Job"}
               </Button>
 
               <Link href="/jobs">
-                <Button variant="outline" type="button">Cancel</Button>
+                <Button variant="outline" type="button">
+                  Cancel
+                </Button>
               </Link>
 
               {msg ? <span className="text-sm text-red-600">{msg}</span> : null}

@@ -42,7 +42,7 @@ type JobApiRow = {
 
 type PodRow = {
   id: string;
-  job_id: string; // NOTE: stored as job_number TEXT (JOB-xxxx) in DB
+  job_id: string; // stored as job_number TEXT (JOB-xxxx) in DB
   file_name: string;
   file_path: string;
   mime_type: string | null;
@@ -54,7 +54,7 @@ type PodRow = {
 type ActivityRow = {
   id: string;
   company_id: string;
-  job_id: string; // NOTE: activity uses job UUID
+  job_id: string; // activity uses job UUID
   action: string;
   actor_user_id: string | null;
   meta: any | null;
@@ -79,27 +79,73 @@ function formatDateTime(iso?: string | null) {
   return d.toLocaleString();
 }
 
-function labelAction(action: string) {
-  switch (action) {
+function timeAgo(iso?: string | null) {
+  if (!iso) return "";
+  const t = new Date(iso).getTime();
+  if (!Number.isFinite(t)) return "";
+  const diffMs = Date.now() - t;
+  const s = Math.max(0, Math.floor(diffMs / 1000));
+  if (s < 60) return `${s}s ago`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  if (d < 30) return `${d}d ago`;
+  const mo = Math.floor(d / 30);
+  if (mo < 12) return `${mo}mo ago`;
+  const y = Math.floor(mo / 12);
+  return `${y}y ago`;
+}
+
+function formatStatusLabel(s: JobStatus) {
+  if (s === "in_transit") return "In Transit";
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+function activityTitle(a: ActivityRow) {
+  const meta = a.meta || {};
+  switch (a.action) {
     case "job.created":
       return "Job created";
     case "job.updated":
       return "Job updated";
     case "job.assigned":
-      return "Assigned";
+      return "Assigned to driver";
     case "job.reassigned":
       return "Reassigned";
     case "job.started":
-      return "Started";
+      return "Job started";
     case "job.completed":
-      return "Completed";
+      return "Job completed";
     case "pod.uploaded":
-      return "POD uploaded";
+      return meta?.file_name ? `POD uploaded: ${meta.file_name}` : "POD uploaded";
     case "pod.deleted":
-      return "POD deleted";
+      return meta?.file_name ? `POD deleted: ${meta.file_name}` : "POD deleted";
     default:
-      return action;
+      return a.action;
   }
+}
+
+function activitySubtitle(a: ActivityRow) {
+  const meta = a.meta || {};
+  if (a.action === "pod.uploaded" || a.action === "pod.deleted") {
+    const size = Number(meta?.size);
+    const sizeLabel = Number.isFinite(size) ? formatBytes(size) : "";
+    return sizeLabel ? sizeLabel : "";
+  }
+  if (a.action === "job.assigned" || a.action === "job.reassigned") {
+    // keep it simple (no UUID spam)
+    return "";
+  }
+  return "";
+}
+
+function isImageMime(mime?: string | null) {
+  return !!mime && mime.startsWith("image/");
+}
+function isPdfMime(mime?: string | null) {
+  return !!mime && mime === "application/pdf";
 }
 
 export default function JobDetailsPage({ params }: { params: Promise<{ id: string }> }) {
@@ -132,7 +178,13 @@ export default function JobDetailsPage({ params }: { params: Promise<{ id: strin
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  const title = useMemo(() => job?.job_number ?? jobNumberFromUrl, [job?.job_number, jobNumberFromUrl]);
+  // Fullscreen image preview
+  const [preview, setPreview] = useState<{ url: string; name: string } | null>(null);
+
+  const title = useMemo(
+    () => job?.job_number ?? jobNumberFromUrl,
+    [job?.job_number, jobNumberFromUrl]
+  );
   const subtitle = useMemo(
     () => job?.customers?.name ?? job?.customer ?? "",
     [job?.customers?.name, job?.customer]
@@ -144,9 +196,12 @@ export default function JobDetailsPage({ params }: { params: Promise<{ id: strin
     setLoadingJob(true);
     setJobError("");
     try {
-      const res = await fetch(`/api/jobs/${encodeURIComponent(jobNumberFromUrl)}`, { cache: "no-store" });
+      const res = await fetch(`/api/jobs/${encodeURIComponent(jobNumberFromUrl)}`, {
+        cache: "no-store",
+      });
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error || "Failed to load job");
+
       setJob(json.job as JobApiRow);
 
       const s = (json.job?.status as JobStatus) ?? "pending";
@@ -220,10 +275,8 @@ export default function JobDetailsPage({ params }: { params: Promise<{ id: strin
 
   useEffect(() => {
     if (!job) return;
-    // ✅ POD: use job_number because pod_files.job_id is TEXT storing JOB-xxxx
-    loadPods(job.job_number || jobNumberFromUrl);
-    // ✅ Activity: use job UUID
-    loadActivity(job.id);
+    loadPods(job.job_number || jobNumberFromUrl); // pod uses job_number
+    loadActivity(job.id); // activity uses UUID
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [job?.id]);
 
@@ -248,6 +301,7 @@ export default function JobDetailsPage({ params }: { params: Promise<{ id: strin
       if (!res.ok) throw new Error(json?.error || "Action failed");
 
       await loadJob();
+      if (job?.id) await loadActivity(job.id);
 
       setSavedMsg(action === "start" ? "Started!" : "Completed!");
       setTimeout(() => setSavedMsg(""), 1200);
@@ -279,6 +333,7 @@ export default function JobDetailsPage({ params }: { params: Promise<{ id: strin
       if (!res.ok) throw new Error(json?.error || "Assign failed");
 
       await loadJob();
+      if (job?.id) await loadActivity(job.id);
 
       setSavedMsg("Assigned!");
       setTimeout(() => setSavedMsg(""), 1200);
@@ -301,7 +356,6 @@ export default function JobDetailsPage({ params }: { params: Promise<{ id: strin
     setUploading(true);
 
     try {
-      // ✅ IMPORTANT: send job_number, not UUID
       const jobKey = job?.job_number ?? jobNumberFromUrl;
 
       for (const file of files) {
@@ -316,7 +370,6 @@ export default function JobDetailsPage({ params }: { params: Promise<{ id: strin
         setPods((prev) => [json.item as PodRow, ...prev]);
       }
 
-      // refresh activity (activity uses job uuid)
       if (job?.id) await loadActivity(job.id);
     } catch (e: any) {
       setPodError(e?.message || "Upload failed");
@@ -417,15 +470,13 @@ export default function JobDetailsPage({ params }: { params: Promise<{ id: strin
       />
 
       <div className="grid gap-6 lg:grid-cols-3">
-        {/* LEFT: Job + workflow + activity */}
+        {/* LEFT */}
         <Card className="lg:col-span-2">
           <CardHeader>
             <div className="flex items-center justify-between gap-3">
               <div>
                 <div className="text-sm font-medium text-neutral-900">Job Info</div>
-                <div className="mt-1 text-sm text-neutral-500">
-                  View details and operate the job through workflow actions.
-                </div>
+                <div className="mt-1 text-sm text-neutral-500">Details + operations.</div>
               </div>
               <StatusBadge status={status} />
             </div>
@@ -457,11 +508,7 @@ export default function JobDetailsPage({ params }: { params: Promise<{ id: strin
 
               <div>
                 <div className="text-xs text-neutral-500">Status</div>
-                <div className="mt-1 font-medium text-neutral-900">
-                  {status === "in_transit"
-                    ? "In Transit"
-                    : status.charAt(0).toUpperCase() + status.slice(1)}
-                </div>
+                <div className="mt-1 font-medium text-neutral-900">{formatStatusLabel(status)}</div>
               </div>
 
               <div>
@@ -477,6 +524,7 @@ export default function JobDetailsPage({ params }: { params: Promise<{ id: strin
               </div>
             ) : null}
 
+            {/* Assign */}
             <div className="mt-6 flex flex-wrap items-center gap-3">
               <div className="text-sm font-medium text-neutral-700">Assign</div>
 
@@ -519,45 +567,16 @@ export default function JobDetailsPage({ params }: { params: Promise<{ id: strin
                 {assigning ? "Assigning..." : "Assign"}
               </Button>
 
-              {!canAssign ? (
-                <span className="text-sm text-neutral-600">Assignment locked after start.</span>
-              ) : null}
-
               {assignError ? <span className="text-sm text-red-600">{assignError}</span> : null}
             </div>
 
-            <div className="mt-6 rounded-xl border bg-white p-3">
-              <div className="text-sm font-medium text-neutral-900">Workflow</div>
-              <div className="mt-1 text-xs text-neutral-600">
-                Status is controlled by server rules: <span className="font-medium">Assign</span>{" "}
-                sets <span className="font-medium">assigned</span>,{" "}
-                <span className="font-medium">Start</span> sets{" "}
-                <span className="font-medium">in transit</span>, and{" "}
-                <span className="font-medium">Complete</span> sets{" "}
-                <span className="font-medium">delivered</span>.
-              </div>
-
-              {savedMsg ? <div className="mt-2 text-sm text-neutral-700">{savedMsg}</div> : null}
-            </div>
+            {savedMsg ? <div className="mt-4 text-sm text-neutral-700">{savedMsg}</div> : null}
 
             {/* Activity */}
             <div className="mt-6 rounded-xl border bg-white p-3">
-              <div className="flex items-center justify-between">
-                <div className="text-sm font-medium text-neutral-900">Activity</div>
-                <Button
-                  variant="outline"
-                  type="button"
-                  onClick={() => job?.id && loadActivity(job.id)}
-                  disabled={activityLoading}
-                >
-                  {activityLoading ? "Refreshing..." : "Refresh"}
-                </Button>
-              </div>
+              <div className="text-sm font-medium text-neutral-900">Activity</div>
 
-              {activityError ? (
-                <div className="mt-2 text-sm text-red-600">{activityError}</div>
-              ) : null}
-
+              {activityError ? <div className="mt-2 text-sm text-red-600">{activityError}</div> : null}
               {activityLoading ? (
                 <div className="mt-2 text-sm text-neutral-600">Loading activity...</div>
               ) : null}
@@ -568,22 +587,24 @@ export default function JobDetailsPage({ params }: { params: Promise<{ id: strin
 
               {!activityLoading && activity.length > 0 ? (
                 <div className="mt-3 space-y-2">
-                  {activity.map((a) => (
-                    <div key={a.id} className="rounded-lg border bg-white p-2">
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="text-sm font-medium text-neutral-900">
-                          {labelAction(a.action)}
+                  {activity.map((a) => {
+                    const sub = activitySubtitle(a);
+                    return (
+                      <div key={a.id} className="rounded-lg border bg-white p-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-medium text-neutral-900">
+                              {activityTitle(a)}
+                            </div>
+                            {sub ? <div className="mt-0.5 text-xs text-neutral-600">{sub}</div> : null}
+                            <div className="mt-1 text-xs text-neutral-500">
+                              {timeAgo(a.created_at)} • {formatDateTime(a.created_at)}
+                            </div>
+                          </div>
                         </div>
-                        <div className="text-xs text-neutral-500">{formatDateTime(a.created_at)}</div>
                       </div>
-
-                      {a.meta ? (
-                        <pre className="mt-2 overflow-auto rounded-md bg-neutral-50 p-2 text-xs text-neutral-700">
-                          {JSON.stringify(a.meta, null, 2)}
-                        </pre>
-                      ) : null}
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               ) : null}
             </div>
@@ -596,9 +617,7 @@ export default function JobDetailsPage({ params }: { params: Promise<{ id: strin
             <div className="flex items-center justify-between gap-3">
               <div>
                 <div className="text-sm font-medium text-neutral-900">POD</div>
-                <div className="mt-1 text-sm text-neutral-500">
-                  Upload and view proof of delivery.
-                </div>
+                <div className="mt-1 text-sm text-neutral-500">Upload and view proof of delivery.</div>
               </div>
 
               <div className="flex items-center gap-2">
@@ -620,18 +639,8 @@ export default function JobDetailsPage({ params }: { params: Promise<{ id: strin
           <CardContent>
             {podError ? <div className="mb-2 text-sm text-red-600">{podError}</div> : null}
 
-            <div className="flex items-center justify-between">
-              <div className="text-xs text-neutral-500">
-                Job key: <span className="font-medium text-neutral-900">{job.job_number}</span>
-              </div>
-              <Button
-                variant="outline"
-                type="button"
-                onClick={() => loadPods(job.job_number)}
-                disabled={podLoading}
-              >
-                {podLoading ? "Refreshing..." : "Refresh"}
-              </Button>
+            <div className="text-xs text-neutral-500">
+              Job key: <span className="font-medium text-neutral-900">{job.job_number}</span>
             </div>
 
             {podLoading ? <div className="mt-2 text-sm text-neutral-600">Loading POD...</div> : null}
@@ -640,41 +649,90 @@ export default function JobDetailsPage({ params }: { params: Promise<{ id: strin
               <div className="mt-2 text-sm text-neutral-600">No POD uploaded yet.</div>
             ) : null}
 
-            <div className="mt-3 space-y-2">
-              {pods.map((p) => (
-                <div key={p.id} className="rounded-lg border bg-white p-2">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="truncate text-sm font-medium text-neutral-900">{p.file_name}</div>
-                      <div className="mt-1 text-xs text-neutral-500">
-                        {p.size ? formatBytes(p.size) : ""}{" "}
-                        {p.mime_type ? `• ${p.mime_type}` : ""} • {formatDateTime(p.created_at)}
+            <div className="mt-3 space-y-3">
+              {pods.map((p) => {
+                const showImg = p.signedUrl && isImageMime(p.mime_type);
+                const showPdf = p.signedUrl && isPdfMime(p.mime_type);
+
+                return (
+                  <div key={p.id} className="rounded-lg border bg-white p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-medium text-neutral-900">{p.file_name}</div>
+                        <div className="mt-1 text-xs text-neutral-500">
+                          {p.size ? formatBytes(p.size) : ""}
+                          {p.mime_type ? ` • ${p.mime_type}` : ""} • {formatDateTime(p.created_at)}
+                        </div>
                       </div>
 
-                      {p.signedUrl ? (
+                      <Button variant="outline" type="button" onClick={() => removePod(p.id)}>
+                        Delete
+                      </Button>
+                    </div>
+
+                    {/* Wider horizontal image */}
+                    {showImg ? (
+                      <button
+                        type="button"
+                        className="mt-3 block w-full overflow-hidden rounded-xl border bg-neutral-50"
+                        onClick={() => setPreview({ url: p.signedUrl!, name: p.file_name })}
+                        aria-label={`Open ${p.file_name}`}
+                      >
+                        <img
+                          src={p.signedUrl!}
+                          alt={p.file_name}
+                          className="h-auto w-full max-h-[260px] object-contain"
+                        />
+                      </button>
+                    ) : null}
+
+                    {showPdf ? (
+                      <div className="mt-3 rounded-xl border bg-neutral-50 p-3">
+                        <div className="text-sm text-neutral-900">PDF</div>
                         <a
-                          className="mt-2 inline-block text-sm text-neutral-900 underline"
-                          href={p.signedUrl}
+                          className="mt-1 inline-block text-sm text-neutral-900 underline"
+                          href={p.signedUrl!}
                           target="_blank"
                           rel="noreferrer"
                         >
-                          View
+                          Open PDF
                         </a>
-                      ) : (
-                        <div className="mt-2 text-xs text-neutral-500">No signed URL</div>
-                      )}
-                    </div>
+                      </div>
+                    ) : null}
 
-                    <Button variant="outline" type="button" onClick={() => removePod(p.id)}>
-                      Delete
-                    </Button>
+                    {!p.signedUrl ? <div className="mt-3 text-xs text-neutral-500">No signed URL</div> : null}
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </CardContent>
         </Card>
       </div>
+
+      {/* Fullscreen image modal */}
+      {preview ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+          onClick={() => setPreview(null)}
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="relative w-full max-w-5xl" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div className="truncate text-sm font-medium text-white">{preview.name}</div>
+              <Button variant="outline" type="button" onClick={() => setPreview(null)}>
+                Close
+              </Button>
+            </div>
+
+            <div className="overflow-auto rounded-2xl bg-black">
+              <img src={preview.url} alt={preview.name} className="h-auto w-full object-contain" />
+            </div>
+
+            <div className="mt-2 text-xs text-white/70">Tip: scroll / pinch zoom (trackpad / mobile)</div>
+          </div>
+        </div>
+      ) : null}
     </PageShell>
   );
 }

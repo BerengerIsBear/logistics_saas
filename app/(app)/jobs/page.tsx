@@ -100,6 +100,16 @@ export default function JobsPage() {
     }
   }
 
+  function resetFilters() {
+    setQuery("");
+    setStatusFilter("all");
+    setDatePreset("all");
+    setRangeFrom("");
+    setRangeTo("");
+    setSort("newest");
+    setTimeout(load, 0);
+  }
+
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -160,8 +170,12 @@ export default function JobsPage() {
                 <option value="oldest">Oldest</option>
               </Select>
 
+              <Button variant="outline" type="button" onClick={resetFilters}>
+                Reset
+              </Button>
+
               <Button variant="outline" type="button" onClick={load}>
-                Apply
+                Search
               </Button>
             </div>
           </div>
@@ -187,51 +201,16 @@ export default function JobsPage() {
                   className="rounded-md border bg-white px-3 py-2 text-sm text-black"
                 />
               </div>
-
-              <div className="sm:ml-auto">
-                <Button
-                  variant="outline"
-                  type="button"
-                  onClick={() => {
-                    setQuery("");
-                    setStatusFilter("all");
-                    setDatePreset("all");
-                    setRangeFrom("");
-                    setRangeTo("");
-                    setSort("newest");
-                    setTimeout(load, 0);
-                  }}
-                >
-                  Reset
-                </Button>
-              </div>
             </div>
-          ) : (
-            <div className="mt-3 flex justify-end">
-              <Button
-                variant="outline"
-                type="button"
-                onClick={() => {
-                  setQuery("");
-                  setStatusFilter("all");
-                  setDatePreset("all");
-                  setRangeFrom("");
-                  setRangeTo("");
-                  setSort("newest");
-                  setTimeout(load, 0);
-                }}
-              >
-                Reset
-              </Button>
-            </div>
-          )}
+          ) : null}
 
           <div className="mt-2 flex items-center justify-between gap-3 text-xs text-neutral-500">
-            <div>Showing <span className="font-medium text-neutral-900">{sorted.length}</span> job(s)</div>
+            <div>
+              Showing <span className="font-medium text-neutral-900">{sorted.length}</span> job(s)
+            </div>
             <div className="flex items-center gap-2">
               {loading ? <span>Loading...</span> : null}
               {err ? <span className="text-red-600">{err}</span> : null}
-              <Button variant="outline" type="button" onClick={load}>Refresh</Button>
             </div>
           </div>
         </CardContent>
@@ -257,7 +236,10 @@ export default function JobsPage() {
                 {sorted.map((j) => (
                   <tr key={j.job_number} className="hover:bg-neutral-50/70">
                     <td className="px-6 py-3 font-medium">
-                      <Link href={`/jobs/${j.job_number}`} className="text-neutral-900 hover:underline">
+                      <Link
+                        href={`/jobs/${j.job_number}`}
+                        className="text-neutral-900 hover:underline"
+                      >
                         {j.job_number}
                       </Link>
                     </td>
@@ -266,7 +248,9 @@ export default function JobsPage() {
                     <td className="px-6 py-3">{j.pickup}</td>
                     <td className="px-6 py-3">{j.dropoff}</td>
                     <td className="px-6 py-3">{j.drivers?.name ?? "-"}</td>
-                    <td className="px-6 py-3"><StatusBadge status={j.status} /></td>
+                    <td className="px-6 py-3">
+                      <StatusBadge status={j.status} />
+                    </td>
                   </tr>
                 ))}
 
@@ -288,7 +272,9 @@ export default function JobsPage() {
                     <td colSpan={7} className="px-6 py-10 text-center">
                       <div className="text-sm text-red-600">{err}</div>
                       <div className="mt-3">
-                        <Button variant="outline" type="button" onClick={load}>Retry</Button>
+                        <Button variant="outline" type="button" onClick={load}>
+                          Retry
+                        </Button>
                       </div>
                     </td>
                   </tr>
