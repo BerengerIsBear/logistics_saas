@@ -113,3 +113,4 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
 
   return NextResponse.json({ success: true });
 }
+

@@ -7,3 +7,4 @@ export function supabaseBrowser() {
   return createBrowserClient(url, anon);
 }
 
+

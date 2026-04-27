@@ -16,3 +16,4 @@ export async function getJobsByCompany(companyId: string) {
   return data ?? [];
 }
 
+

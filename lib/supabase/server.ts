@@ -8,3 +8,4 @@ export function supabaseAdmin() {
   return createClient(url, key, { auth: { persistSession: false } });
 }
 
+

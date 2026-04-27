@@ -1,4 +1,4 @@
-// app/(app)/jobs/new/page.tsx
+// app/(app)/jobs/create/page.tsx
 "use client";
 
 import Link from "next/link";
@@ -133,7 +133,7 @@ export default function NewJobPage() {
                     Create a customer first, then come back to create jobs.
                   </div>
                   <div className="mt-3 flex items-center gap-2">
-                    <Link href="/customers/new?next=/jobs/new">
+                    <Link href="/customers/create?next=/jobs/create">
                       <Button variant="primary" type="button">
                         + Create Customer
                       </Button>
@@ -164,7 +164,7 @@ export default function NewJobPage() {
                     ))}
                   </select>
 
-                  <Link href="/customers/new?next=/jobs/new">
+                  <Link href="/customers/create?next=/jobs/create">
                     <Button variant="outline" type="button">
                       + Customer
                     </Button>
@@ -252,3 +252,4 @@ export default function NewJobPage() {
     </PageShell>
   );
 }
+

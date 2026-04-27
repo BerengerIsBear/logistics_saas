@@ -1,4 +1,4 @@
-// app/(app)/customers/new/page.tsx
+// app/(app)/customers/create/page.tsx
 "use client";
 
 import Link from "next/link";
@@ -140,3 +140,4 @@ export default function NewCustomerPage() {
     </PageShell>
   );
 }
+
