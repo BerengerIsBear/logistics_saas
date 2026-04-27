@@ -26,3 +26,4 @@ export function Button({ className, variant = "outline", ...props }: Props) {
   return <button className={cn(base, styles[variant], className)} {...props} />;
 }
 
+

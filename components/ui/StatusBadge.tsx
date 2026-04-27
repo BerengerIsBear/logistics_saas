@@ -33,3 +33,4 @@ export function StatusBadge({ status }: { status: JobStatus }) {
     </span>
   );
 }
+

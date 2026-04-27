@@ -8,7 +8,7 @@ export function Sidebar() {
   const pathname = usePathname();
 
   const isJobsActive = pathname.startsWith("/jobs");
-  const isDriverJobsActive = pathname.startsWith("/driver/jobs");
+  const isDriverJobsActive = pathname.startsWith("/driver-jobs");
   const isCustomersActive = pathname.startsWith("/customers");
 
   const linkBase = "block rounded-md px-3 py-2 text-sm transition";
@@ -35,7 +35,7 @@ export function Sidebar() {
         </Link>
 
         <Link
-          href="/driver/jobs"
+          href="/driver-jobs"
           className={[linkBase, isDriverJobsActive ? linkActive : linkIdle].join(" ")}
         >
           Driver Jobs
@@ -53,3 +53,4 @@ export function Sidebar() {
     </aside>
   );
 }
+

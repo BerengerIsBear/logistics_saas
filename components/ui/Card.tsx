@@ -30,3 +30,4 @@ export function CardContent({ className, ...props }: Props) {
   return <div className={cn("px-6 py-4", className)} {...props} />;
 }
 
+
