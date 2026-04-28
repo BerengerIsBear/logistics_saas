@@ -1,3 +1,5 @@
+// middleware.ts
+
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
@@ -8,7 +10,6 @@ export async function middleware(req: NextRequest) {
     pathname.startsWith("/login") || pathname.startsWith("/auth/callback");
 
   const isProtected =
-    pathname === "/" ||
     pathname.startsWith("/jobs") ||
     pathname.startsWith("/customers") ||
     pathname.startsWith("/drivers") ||
@@ -17,44 +18,59 @@ export async function middleware(req: NextRequest) {
     pathname.startsWith("/reports") ||
     pathname.startsWith("/settings");
 
-  if (!isProtected || isAuthPage) {
-    return NextResponse.next();
-  }
+  let res = NextResponse.next({
+    request: req,
+  });
 
-  const res = NextResponse.next();
-
-  try {
-    const supabase = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        cookies: {
-          getAll() {
-            return req.cookies.getAll();
-          },
-          setAll(cookiesToSet) {
-            cookiesToSet.forEach(({ name, value, options }) => {
-              res.cookies.set(name, value, options);
-            });
-          },
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return req.cookies.getAll();
         },
-      }
-    );
+        setAll(cookiesToSet) {
+          cookiesToSet.forEach(({ name, value }) => {
+            req.cookies.set(name, value);
+          });
 
-    const { data } = await supabase.auth.getUser();
+          res = NextResponse.next({
+            request: req,
+          });
 
-    if (!data.user) {
-      const redirectUrl = req.nextUrl.clone();
-      redirectUrl.pathname = "/login";
-      return NextResponse.redirect(redirectUrl);
+          cookiesToSet.forEach(({ name, value, options }) => {
+            res.cookies.set(name, value, options);
+          });
+        },
+      },
     }
+  );
 
-    return res;
-  } catch {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user && isProtected) {
     const redirectUrl = req.nextUrl.clone();
     redirectUrl.pathname = "/login";
+    redirectUrl.searchParams.set("redirectedFrom", pathname);
+
     return NextResponse.redirect(redirectUrl);
   }
+
+  if (user && pathname === "/login") {
+    const redirectUrl = req.nextUrl.clone();
+    redirectUrl.pathname = "/jobs";
+
+    return NextResponse.redirect(redirectUrl);
+  }
+
+  if (isAuthPage || isProtected) {
+    return res;
+  }
+
+  return res;
 }
 
 export const config = {

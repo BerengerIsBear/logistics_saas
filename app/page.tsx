@@ -1,12 +1,34 @@
-export default function Home() {
-  return (
-    <main className="p-6">
-      <h1 className="text-2xl font-semibold">Logistics Ops</h1>
-      <p className="mt-2 text-gray-600">
-        Internal logistics management system.
-      </p>
-    </main>
+// app/page.tsx
+
+import { redirect } from "next/navigation";
+import { cookies } from "next/headers";
+import { createServerClient } from "@supabase/ssr";
+
+export default async function HomePage() {
+  const cookieStore = await cookies();
+
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return cookieStore.getAll();
+        },
+        setAll() {
+          // No-op here because this page only checks session and redirects.
+        },
+      },
+    }
   );
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (user) {
+    redirect("/jobs");
+  }
+
+  redirect("/login");
 }
-
-
