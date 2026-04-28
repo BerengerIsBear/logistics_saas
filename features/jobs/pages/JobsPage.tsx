@@ -1,4 +1,5 @@
-// app/(app)/jobs/page.tsx
+// features/jobs/pages/JobsPage.tsx
+
 "use client";
 
 import Link from "next/link";
@@ -8,8 +9,10 @@ import { PageHeader } from "@/components/PageHeader";
 import { Card, CardContent } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { StatusBadge } from "@/components/ui/StatusBadge";
+import { SlaBadge } from "@/components/ui/SlaBadge";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
+import { formatSlaDetail, getJobSla } from "@/lib/jobs/sla";
 
 type JobStatus = "pending" | "assigned" | "in_transit" | "delivered";
 
@@ -18,9 +21,11 @@ type JobRow = {
   pickup: string;
   dropoff: string;
   scheduled_date: string | null;
+  window_end: string | null;
+  delivered_at: string | null;
   status: JobStatus;
   customers?: { name: string } | null;
-  customer?: string | null; // fallback snapshot
+  customer?: string | null;
   drivers?: { name: string } | null;
   vehicles?: { plate_no: string } | null;
   created_at: string;
@@ -53,11 +58,18 @@ export default function JobsPage() {
   function buildQueryString() {
     const params = new URLSearchParams();
     const q = query.trim();
-    if (q) params.set("q", q);
-    if (statusFilter !== "all") params.set("status", statusFilter);
+
+    if (q) {
+      params.set("q", q);
+    }
+
+    if (statusFilter !== "all") {
+      params.set("status", statusFilter);
+    }
 
     const today = new Date();
     const todayYmd = toYmd(today);
+
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
     const tomorrowYmd = toYmd(tomorrow);
@@ -71,30 +83,47 @@ export default function JobsPage() {
     } else if (datePreset === "next7") {
       const end = new Date(today);
       end.setDate(end.getDate() + 7);
+
       params.set("dateFrom", todayYmd);
       params.set("dateTo", toYmd(end));
     } else if (datePreset === "range") {
       const from = rangeFrom.trim();
       const to = rangeTo.trim();
-      if (from) params.set("dateFrom", from);
-      if (to) params.set("dateTo", to);
+
+      if (from) {
+        params.set("dateFrom", from);
+      }
+
+      if (to) {
+        params.set("dateTo", to);
+      }
     }
 
     const s = params.toString();
+
     return s ? `?${s}` : "";
   }
 
   async function load() {
     setLoading(true);
     setErr("");
+
     try {
       const qs = buildQueryString();
       const res = await fetch(`/api/jobs${qs}`, { cache: "no-store" });
       const json = await res.json();
-      if (!res.ok) throw new Error(json?.error || "Failed to load jobs");
+
+      if (!res.ok) {
+        throw new Error(json?.error || "Failed to load jobs");
+      }
+
       setRows(json.jobs || []);
-    } catch (e: any) {
-      setErr(e?.message || "Failed to load jobs");
+    } catch (e: unknown) {
+      if (e instanceof Error) {
+        setErr(e.message);
+      } else {
+        setErr("Failed to load jobs");
+      }
     } finally {
       setLoading(false);
     }
@@ -117,11 +146,14 @@ export default function JobsPage() {
 
   const sorted = useMemo(() => {
     const copy = [...rows];
+
     copy.sort((a, b) => {
       const ta = new Date(a.created_at).getTime();
       const tb = new Date(b.created_at).getTime();
+
       return sort === "newest" ? tb - ta : ta - tb;
     });
+
     return copy;
   }, [rows, sort]);
 
@@ -149,7 +181,10 @@ export default function JobsPage() {
             </div>
 
             <div className="flex flex-wrap gap-3">
-              <Select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as any)}>
+              <Select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
+              >
                 <option value="all">All Status</option>
                 <option value="pending">Pending</option>
                 <option value="assigned">Assigned</option>
@@ -157,7 +192,10 @@ export default function JobsPage() {
                 <option value="delivered">Delivered</option>
               </Select>
 
-              <Select value={datePreset} onChange={(e) => setDatePreset(e.target.value as any)}>
+              <Select
+                value={datePreset}
+                onChange={(e) => setDatePreset(e.target.value as DatePreset)}
+              >
                 <option value="all">All Dates</option>
                 <option value="today">Today</option>
                 <option value="tomorrow">Tomorrow</option>
@@ -165,7 +203,10 @@ export default function JobsPage() {
                 <option value="range">Date range</option>
               </Select>
 
-              <Select value={sort} onChange={(e) => setSort(e.target.value as any)}>
+              <Select
+                value={sort}
+                onChange={(e) => setSort(e.target.value as SortMode)}
+              >
                 <option value="newest">Newest</option>
                 <option value="oldest">Oldest</option>
               </Select>
@@ -206,8 +247,13 @@ export default function JobsPage() {
 
           <div className="mt-2 flex items-center justify-between gap-3 text-xs text-neutral-500">
             <div>
-              Showing <span className="font-medium text-neutral-900">{sorted.length}</span> job(s)
+              Showing{" "}
+              <span className="font-medium text-neutral-900">
+                {sorted.length}
+              </span>{" "}
+              job(s)
             </div>
+
             <div className="flex items-center gap-2">
               {loading ? <span>Loading...</span> : null}
               {err ? <span className="text-red-600">{err}</span> : null}
@@ -229,35 +275,70 @@ export default function JobsPage() {
                   <th className="px-6 py-3">Drop-off</th>
                   <th className="px-6 py-3">Driver</th>
                   <th className="px-6 py-3">Status</th>
+                  <th className="px-6 py-3">SLA</th>
                 </tr>
               </thead>
 
               <tbody className="divide-y divide-neutral-200 text-neutral-700">
-                {sorted.map((j) => (
-                  <tr key={j.job_number} className="hover:bg-neutral-50/70">
-                    <td className="px-6 py-3 font-medium">
-                      <Link
-                        href={`/jobs/${j.job_number}`}
-                        className="text-neutral-900 hover:underline"
-                      >
-                        {j.job_number}
-                      </Link>
-                    </td>
-                    <td className="px-6 py-3">{j.customers?.name ?? j.customer ?? "-"}</td>
-                    <td className="px-6 py-3">{j.scheduled_date ?? "-"}</td>
-                    <td className="px-6 py-3">{j.pickup}</td>
-                    <td className="px-6 py-3">{j.dropoff}</td>
-                    <td className="px-6 py-3">{j.drivers?.name ?? "-"}</td>
-                    <td className="px-6 py-3">
-                      <StatusBadge status={j.status} />
-                    </td>
-                  </tr>
-                ))}
+                {sorted.map((j) => {
+                  const sla = getJobSla({
+                    status: j.status,
+                    scheduled_date: j.scheduled_date,
+                    window_end: j.window_end,
+                    delivered_at: j.delivered_at,
+                  });
+
+                  return (
+                    <tr key={j.job_number} className="hover:bg-neutral-50/70">
+                      <td className="px-6 py-3 font-medium">
+                        <Link
+                          href={`/jobs/${j.job_number}`}
+                          className="text-neutral-900 hover:underline"
+                        >
+                          {j.job_number}
+                        </Link>
+                      </td>
+
+                      <td className="px-6 py-3">
+                        {j.customers?.name ?? j.customer ?? "-"}
+                      </td>
+
+                      <td className="px-6 py-3">
+                        <div>{j.scheduled_date ?? "-"}</div>
+                        {j.window_end ? (
+                          <div className="text-xs text-neutral-500">
+                            Target: {j.window_end}
+                          </div>
+                        ) : null}
+                      </td>
+
+                      <td className="px-6 py-3">{j.pickup}</td>
+                      <td className="px-6 py-3">{j.dropoff}</td>
+                      <td className="px-6 py-3">{j.drivers?.name ?? "-"}</td>
+
+                      <td className="px-6 py-3">
+                        <StatusBadge status={j.status} />
+                      </td>
+
+                      <td className="px-6 py-3">
+                        <div className="flex flex-col gap-1">
+                          <SlaBadge status={sla.status} />
+                          <span className="text-xs text-neutral-500">
+                            {formatSlaDetail(sla)}
+                          </span>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
 
                 {!loading && sorted.length === 0 && !err && (
                   <tr>
-                    <td colSpan={7} className="px-6 py-10 text-center">
-                      <div className="text-sm text-neutral-500">No jobs found.</div>
+                    <td colSpan={8} className="px-6 py-10 text-center">
+                      <div className="text-sm text-neutral-500">
+                        No jobs found.
+                      </div>
+
                       <div className="mt-3">
                         <Link href="/jobs/create">
                           <Button variant="primary">Create job</Button>
@@ -269,8 +350,9 @@ export default function JobsPage() {
 
                 {err && (
                   <tr>
-                    <td colSpan={7} className="px-6 py-10 text-center">
+                    <td colSpan={8} className="px-6 py-10 text-center">
                       <div className="text-sm text-red-600">{err}</div>
+
                       <div className="mt-3">
                         <Button variant="outline" type="button" onClick={load}>
                           Retry
@@ -287,4 +369,3 @@ export default function JobsPage() {
     </PageShell>
   );
 }
-

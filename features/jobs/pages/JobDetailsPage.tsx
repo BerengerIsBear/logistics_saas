@@ -10,6 +10,8 @@ import { PageHeader } from "@/components/PageHeader";
 import { Card, CardContent, CardHeader } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { StatusBadge } from "@/components/ui/StatusBadge";
+import { SlaBadge } from "@/components/ui/SlaBadge";
+import { formatSlaDetail, formatSlaTarget, getJobSla } from "@/lib/jobs/sla";
 
 type JobStatus = "pending" | "assigned" | "in_transit" | "delivered";
 
@@ -399,6 +401,13 @@ export default function JobDetailsPage({
     );
   }
 
+  const sla = getJobSla({
+    status: job.status,
+    scheduled_date: job.scheduled_date,
+    window_end: job.window_end,
+    delivered_at: job.delivered_at,
+  });
+
   return (
     <PageShell>
       <PageHeader
@@ -491,6 +500,33 @@ export default function JobDetailsPage({
               <div className="pt-2 text-xs text-neutral-500">
                 Valid flow: Pending → Assigned → In Transit → Delivered
               </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="mt-4">
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold text-neutral-900">
+                  SLA / Risk
+                </div>
+                <div className="mt-1 text-sm text-neutral-500">
+                  Rule-based delivery risk check.
+                </div>
+              </div>
+
+              <SlaBadge status={sla.status} />
+            </div>
+          </CardHeader>
+
+          <CardContent>
+            <div className="grid gap-4 sm:grid-cols-3">
+              <Detail label="Target delivery" value={formatSlaTarget(sla.targetAt)} />
+              <Detail label="Current signal" value={sla.label} />
+              <Detail label="Risk detail" value={formatSlaDetail(sla)} />
             </div>
           </CardContent>
         </Card>
