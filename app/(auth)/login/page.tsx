@@ -15,7 +15,7 @@ export default function LoginPage() {
 
   const [mode, setMode] = useState<"login" | "reset">("login");
 
-  const [email, setEmail] = useState("berengerngan@gmail.com");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
 

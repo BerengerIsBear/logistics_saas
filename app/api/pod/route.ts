@@ -1,7 +1,6 @@
 // app/api/pod/route.ts
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { createServerClient } from "@supabase/ssr";
+import { requireRole } from "@/lib/auth/access";
 import { createClient } from "@supabase/supabase-js";
 
 const BUCKET = "pod";
@@ -12,37 +11,6 @@ const admin = createClient(
   process.env.SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
-
-async function getAuthedUser() {
-  const cookieStore = await cookies();
-
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return cookieStore.getAll();
-        },
-        setAll() {},
-      },
-    }
-  );
-
-  const { data } = await supabase.auth.getUser();
-  return data.user ?? null;
-}
-
-async function getCompanyId(userId: string) {
-  const { data, error } = await admin
-    .from("profiles")
-    .select("company_id")
-    .eq("id", userId)
-    .single();
-
-  if (error || !data?.company_id) return null;
-  return data.company_id as string;
-}
 
 function safeName(name: string) {
   return name.replace(/[^\w.\-() ]+/g, "_");
@@ -67,11 +35,9 @@ async function assertJobNumberOwned(companyId: string, jobNumber: string) {
 
 /* ---------------- GET: list PODs ---------------- */
 export async function GET(req: Request) {
-  const user = await getAuthedUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-  const companyId = await getCompanyId(user.id);
-  if (!companyId) return NextResponse.json({ error: "No company profile" }, { status: 403 });
+  const auth = await requireRole(["admin", "dispatcher"]);
+  if ("response" in auth) return auth.response;
+  const { companyId } = auth.context;
 
   const { searchParams } = new URL(req.url);
   const raw = String(searchParams.get("jobId") ?? "");
@@ -106,11 +72,9 @@ export async function GET(req: Request) {
 
 /* ---------------- POST: upload POD ---------------- */
 export async function POST(req: Request) {
-  const user = await getAuthedUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-  const companyId = await getCompanyId(user.id);
-  if (!companyId) return NextResponse.json({ error: "No company profile" }, { status: 403 });
+  const auth = await requireRole(["admin", "dispatcher"]);
+  if ("response" in auth) return auth.response;
+  const { companyId, userId } = auth.context;
 
   const fd = await req.formData();
   const jobNumber = normalizeJobNumber(String(fd.get("jobId") || ""));
@@ -169,7 +133,7 @@ export async function POST(req: Request) {
       company_id: companyId,
       job_id: owned.jobUuid, // ✅ activity should use UUID
       action: "pod.uploaded",
-      actor_user_id: user.id,
+      actor_user_id: userId,
       meta: {
         job_number: jobNumber,
         pod_id: row.id,
@@ -189,11 +153,9 @@ export async function POST(req: Request) {
 
 /* ---------------- DELETE: remove POD ---------------- */
 export async function DELETE(req: Request) {
-  const user = await getAuthedUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-  const companyId = await getCompanyId(user.id);
-  if (!companyId) return NextResponse.json({ error: "No company profile" }, { status: 403 });
+  const auth = await requireRole(["admin", "dispatcher"]);
+  if ("response" in auth) return auth.response;
+  const { companyId, userId } = auth.context;
 
   const body = await req.json().catch(() => null);
   const podId = String(body?.podId ?? "").trim();
@@ -218,7 +180,7 @@ export async function DELETE(req: Request) {
   const { error: rmErr } = await admin.storage.from(BUCKET).remove([row.file_path]);
   if (rmErr) return NextResponse.json({ error: rmErr.message }, { status: 500 });
 
-  const { error: delErr } = await admin.from("pod_files").delete().eq("id", podId);
+  const { error: delErr } = await admin.from("pod_files").delete().eq("id", podId).eq("company_id", companyId);
   if (delErr) return NextResponse.json({ error: delErr.message }, { status: 500 });
 
   // ✅ Activity log (non-blocking)
@@ -227,7 +189,7 @@ export async function DELETE(req: Request) {
       company_id: companyId,
       job_id: owned.jobUuid, // ✅ activity should use UUID
       action: "pod.deleted",
-      actor_user_id: user.id,
+      actor_user_id: userId,
       meta: {
         job_number: jobNumber,
         pod_id: row.id,

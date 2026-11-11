@@ -3,8 +3,9 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import type { Role } from "@/lib/auth/access";
 
-export function Sidebar() {
+export function Sidebar({ role }: { role: Role }) {
   const pathname = usePathname();
 
   const isJobsActive = pathname.startsWith("/jobs");
@@ -20,35 +21,40 @@ export function Sidebar() {
       <div className="p-4 text-sm font-semibold">Logistics SaaS</div>
 
       <nav className="mt-2 space-y-1 px-2">
-        <Link
-          href="/jobs"
-          className={[linkBase, isJobsActive ? linkActive : linkIdle].join(" ")}
-        >
-          Jobs
-        </Link>
+        {role !== "driver" ? (
+          <>
+            <Link
+              href="/jobs"
+              className={[linkBase, isJobsActive ? linkActive : linkIdle].join(" ")}
+            >
+              Jobs
+            </Link>
+            <Link
+              href="/customers"
+              className={[linkBase, isCustomersActive ? linkActive : linkIdle].join(" ")}
+            >
+              Customers
+            </Link>
+          </>
+        ) : (
+          <Link
+            href="/driver-jobs"
+            className={[linkBase, isDriverJobsActive ? linkActive : linkIdle].join(" ")}
+          >
+            My Deliveries
+          </Link>
+        )}
 
-        <Link
-          href="/customers"
-          className={[linkBase, isCustomersActive ? linkActive : linkIdle].join(" ")}
-        >
-          Customers
-        </Link>
-
-        <Link
-          href="/driver-jobs"
-          className={[linkBase, isDriverJobsActive ? linkActive : linkIdle].join(" ")}
-        >
-          Driver Jobs
-        </Link>
-
-        <div className="mt-4 px-3 text-xs uppercase text-neutral-400">
-          Coming next
-        </div>
-
-        <div className="px-3 py-2 text-sm text-neutral-400">Proof of Delivery</div>
-        <div className="px-3 py-2 text-sm text-neutral-400">Invoices</div>
-        <div className="px-3 py-2 text-sm text-neutral-400">Reports</div>
-        <div className="px-3 py-2 text-sm text-neutral-400">Settings</div>
+        {role !== "driver" && (
+          <>
+            <div className="mt-4 px-3 text-xs uppercase text-neutral-400">
+              Coming next
+            </div>
+            <div className="px-3 py-2 text-sm text-neutral-400">Invoices</div>
+            <div className="px-3 py-2 text-sm text-neutral-400">Reports</div>
+            <div className="px-3 py-2 text-sm text-neutral-400">Settings</div>
+          </>
+        )}
       </nav>
     </aside>
   );

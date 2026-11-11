@@ -1,44 +1,12 @@
 // app/api/driver-jobs/route.ts
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { createServerClient } from "@supabase/ssr";
+import { requireRole } from "@/lib/auth/access";
 import { createClient } from "@supabase/supabase-js";
 
 const admin = createClient(
   process.env.SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
-
-async function getAuthedUser() {
-  const cookieStore = await cookies();
-
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return cookieStore.getAll();
-        },
-        setAll() {},
-      },
-    }
-  );
-
-  const { data } = await supabase.auth.getUser();
-  return data.user ?? null;
-}
-
-async function getProfile(userId: string) {
-  const { data, error } = await admin
-    .from("profiles")
-    .select("company_id, driver_id")
-    .eq("id", userId)
-    .maybeSingle();
-
-  if (error) return null;
-  return data as { company_id: string; driver_id: string | null } | null;
-}
 
 function todayYMD() {
   const d = new Date();
@@ -49,22 +17,11 @@ function todayYMD() {
 }
 
 export async function GET(req: Request) {
-  const user = await getAuthedUser();
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const profile = await getProfile(user.id);
-
-  if (!profile?.company_id) {
-    return NextResponse.json({ error: "No company profile" }, { status: 403 });
-  }
-
-  if (!profile.driver_id) {
-    return NextResponse.json(
-      { error: "User not linked to driver" },
-      { status: 403 }
-    );
+  const auth = await requireRole(["driver"]);
+  if ("response" in auth) return auth.response;
+  const { companyId, driverId } = auth.context;
+  if (!driverId) {
+    return NextResponse.json({ error: "User not linked to driver" }, { status: 403 });
   }
 
   const { searchParams } = new URL(req.url);
@@ -83,8 +40,8 @@ export async function GET(req: Request) {
         vehicles(plate_no)
       `
     )
-    .eq("company_id", profile.company_id)
-    .eq("driver_id", profile.driver_id);
+    .eq("company_id", companyId)
+    .eq("driver_id", driverId);
 
   // Operational scope logic
   if (scope === "today") {

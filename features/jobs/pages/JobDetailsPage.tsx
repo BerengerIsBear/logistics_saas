@@ -89,7 +89,6 @@ export default function JobDetailsPage({
 
   const [loading, setLoading] = useState(false);
   const [assigning, setAssigning] = useState(false);
-  const [progressing, setProgressing] = useState(false);
   const [uploadingPod, setUploadingPod] = useState(false);
   const [msg, setMsg] = useState("");
 
@@ -238,43 +237,6 @@ export default function JobDetailsPage({
     }
   }
 
-  async function progressJob(action: "start" | "complete") {
-    setProgressing(true);
-    setMsg("");
-
-    try {
-      const res = await fetch(
-        `/api/jobs/${encodeURIComponent(jobNumber)}/progress`,
-        {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ action }),
-        }
-      );
-
-      const json = await res.json();
-
-      if (!res.ok) {
-        throw new Error(json?.error || "Failed to update job progress");
-      }
-
-      setMsg(action === "start" ? "Job started." : "Job completed.");
-
-      await loadJob();
-      await loadActivity();
-    } catch (err: unknown) {
-      if (err instanceof Error) {
-        setMsg(err.message);
-      } else {
-        setMsg("Failed to update job progress");
-      }
-    } finally {
-      setProgressing(false);
-    }
-  }
-
   async function uploadPod(file: File | null) {
     if (!file) {
       return;
@@ -346,8 +308,6 @@ export default function JobDetailsPage({
   }
 
   const canAssign = job?.status === "pending" || job?.status === "assigned";
-  const canStart = job?.status === "assigned";
-  const canComplete = job?.status === "in_transit";
 
   if (loading && !job) {
     return (
@@ -478,25 +438,8 @@ export default function JobDetailsPage({
           </CardHeader>
 
           <CardContent>
-            <div className="space-y-3">
-              <Button
-                type="button"
-                variant="primary"
-                disabled={!canStart || progressing}
-                onClick={() => progressJob("start")}
-              >
-                {progressing ? "Updating..." : "Start Job"}
-              </Button>
-
-              <Button
-                type="button"
-                variant="outline"
-                disabled={!canComplete || progressing}
-                onClick={() => progressJob("complete")}
-              >
-                {progressing ? "Updating..." : "Complete Job"}
-              </Button>
-
+            <div className="text-sm text-neutral-700">
+              Drivers start and complete deliveries from their My Deliveries page.
               <div className="pt-2 text-xs text-neutral-500">
                 Valid flow: Pending → Assigned → In Transit → Delivered
               </div>
