@@ -59,6 +59,7 @@ export async function PATCH(
     .from("drivers")
     .select("id")
     .eq("company_id", companyId)
+    .eq("is_active", true)
     .eq("id", driverId)
     .maybeSingle();
 
@@ -67,13 +68,14 @@ export async function PATCH(
   }
 
   if (!driverRow) {
-    return NextResponse.json({ error: "Invalid driver" }, { status: 400 });
+    return NextResponse.json({ error: "Driver not found or inactive" }, { status: 400 });
   }
 
   const { data: vehicleRow, error: vehicleErr } = await admin
     .from("vehicles")
     .select("id")
     .eq("company_id", companyId)
+    .eq("is_active", true)
     .eq("id", vehicleId)
     .maybeSingle();
 
@@ -82,7 +84,7 @@ export async function PATCH(
   }
 
   if (!vehicleRow) {
-    return NextResponse.json({ error: "Invalid vehicle" }, { status: 400 });
+    return NextResponse.json({ error: "Vehicle not found or inactive" }, { status: 400 });
   }
 
   const prevDriverId = currentJob.driver_id ?? null;

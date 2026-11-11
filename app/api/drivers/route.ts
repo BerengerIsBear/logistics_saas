@@ -1,49 +1,47 @@
 // app/api/drivers/route.ts
 import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/access";
-import { createClient } from "@supabase/supabase-js";
+import { supabaseAdmin } from "@/lib/supabase/server";
 
-const admin = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
-
-export async function GET() {
+export async function GET(req: Request) {
   const auth = await requireRole(["admin", "dispatcher"]);
   if ("response" in auth) return auth.response;
-  const { companyId } = auth.context;
 
-  const { data, error } = await admin
+  const all = new URL(req.url).searchParams.get("all") === "1";
+  let query = supabaseAdmin()
     .from("drivers")
     .select("id, name, phone, is_active, created_at")
-    .eq("company_id", companyId)
-    .eq("is_active", true)
-    .order("created_at", { ascending: false });
+    .eq("company_id", auth.context.companyId);
 
+  // Assignment dropdowns only need active drivers. Management sees everyone.
+  if (!all) query = query.eq("is_active", true);
+
+  const { data, error } = await query.order("created_at", { ascending: false });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ drivers: data ?? [] });
 }
 
-// Optional but useful: quick create drivers from UI later
 export async function POST(req: Request) {
   const auth = await requireRole(["admin"]);
   if ("response" in auth) return auth.response;
-  const { companyId } = auth.context;
 
   const body = await req.json().catch(() => null);
-  const name = String(body?.name ?? "").trim();
-  const phone = String(body?.phone ?? "").trim();
+  const name = typeof body?.name === "string" ? body.name.trim() : "";
+  const phone = typeof body?.phone === "string" ? body.phone.trim() : "";
 
-  if (!name) return NextResponse.json({ error: "Name required" }, { status: 400 });
+  if (!name || name.length > 120) {
+    return NextResponse.json({ error: "Driver name must be 1–120 characters" }, { status: 400 });
+  }
+  if (phone.length > 40) {
+    return NextResponse.json({ error: "Phone must be at most 40 characters" }, { status: 400 });
+  }
 
-  const { data, error } = await admin
+  const { data, error } = await supabaseAdmin()
     .from("drivers")
-    .insert({ company_id: companyId, name, phone: phone || null })
+    .insert({ company_id: auth.context.companyId, name, phone: phone || null, is_active: true })
     .select("id, name, phone, is_active, created_at")
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ driver: data });
+  return NextResponse.json({ driver: data }, { status: 201 });
 }
-
-

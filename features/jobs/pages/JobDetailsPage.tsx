@@ -497,6 +497,11 @@ export default function JobDetailsPage({
                   className="w-full rounded-md border bg-white px-3 py-2 text-sm text-neutral-900"
                 >
                   <option value="">Select driver</option>
+                  {selectedDriverId && !drivers.some((driver) => driver.id === selectedDriverId) && (
+                    <option value={selectedDriverId}>
+                      {job.drivers?.name ?? "Previous driver"} (inactive)
+                    </option>
+                  )}
                   {drivers.map((driver) => (
                     <option key={driver.id} value={driver.id}>
                       {driver.name}
@@ -514,6 +519,11 @@ export default function JobDetailsPage({
                   className="w-full rounded-md border bg-white px-3 py-2 text-sm text-neutral-900"
                 >
                   <option value="">Select vehicle</option>
+                  {selectedVehicleId && !vehicles.some((vehicle) => vehicle.id === selectedVehicleId) && (
+                    <option value={selectedVehicleId}>
+                      {job.vehicles?.plate_no ?? "Previous vehicle"} (inactive)
+                    </option>
+                  )}
                   {vehicles.map((vehicle) => (
                     <option key={vehicle.id} value={vehicle.id}>
                       {vehicle.plate_no}
