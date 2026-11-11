@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/Button";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { SlaBadge } from "@/components/ui/SlaBadge";
 import JobFinancialCard from "@/features/jobs/components/JobFinancialCard";
+import CustomWorkflowCard from "@/features/jobs/components/CustomWorkflowCard";
 import { formatSlaDetail, formatSlaTarget, getJobSla } from "@/lib/jobs/sla";
 
 type JobStatus = "pending" | "assigned" | "in_transit" | "delivered";
@@ -433,10 +434,10 @@ export default function JobDetailsPage({
         <Card>
           <CardHeader>
             <div className="text-sm font-semibold text-neutral-900">
-              Workflow
+              Delivery Lifecycle
             </div>
             <div className="mt-1 text-sm text-neutral-500">
-              Server-enforced job progress.
+              Server-enforced driver progress.
             </div>
           </CardHeader>
 
@@ -449,6 +450,10 @@ export default function JobDetailsPage({
             </div>
           </CardContent>
         </Card>
+      </div>
+
+      <div className="mt-4">
+        <CustomWorkflowCard jobNumber={jobNumber} onChanged={loadActivity} />
       </div>
 
       <div className="mt-4">
@@ -775,6 +780,8 @@ function formatActivityAction(action: string) {
     "pod.uploaded": "Proof of delivery uploaded",
     "pod.deleted": "Proof of delivery deleted",
     "finance.updated": "Job financials updated",
+    "workflow.assigned": "Custom workflow assigned",
+    "workflow.advanced": "Custom workflow stage advanced",
   };
 
   return labels[action] ?? action;
@@ -836,6 +843,18 @@ function formatActivityDescription(
 
   if (item.action === "finance.updated") {
     return "Financial fields were updated by an administrator.";
+  }
+
+  if (item.action === "workflow.assigned") {
+    const name = getString(meta.workflow);
+    const stage = getString(meta.stage);
+    return `Assigned ${name || "a workflow"}${stage ? `, starting at ${stage}` : ""}.`;
+  }
+
+  if (item.action === "workflow.advanced") {
+    const from = getString(meta.from);
+    const to = getString(meta.to);
+    return from && to ? `Moved from ${from} to ${to}.` : "Advanced to the next workflow stage.";
   }
 
   if (item.action === "pod.uploaded") {

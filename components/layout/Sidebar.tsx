@@ -18,6 +18,7 @@ export function Sidebar({ role }: { role: Role }) {
   const isDriverPerformanceActive = pathname.startsWith("/driver-performance");
   const isSlaPerformanceActive = pathname.startsWith("/sla-performance");
   const isOperationalRiskActive = pathname.startsWith("/operational-risk");
+  const isWorkflowsActive = pathname.startsWith("/workflows");
 
   const linkBase = "block rounded-md px-3 py-2 text-sm transition";
   const linkActive = "bg-neutral-900 text-white";
@@ -53,6 +54,12 @@ export function Sidebar({ role }: { role: Role }) {
               className={[linkBase, isVehiclesActive ? linkActive : linkIdle].join(" ")}
             >
               Vehicles
+            </Link>
+            <Link
+              href="/workflows"
+              className={[linkBase, isWorkflowsActive ? linkActive : linkIdle].join(" ")}
+            >
+              Workflows
             </Link>
             <Link
               href="/driver-performance"
