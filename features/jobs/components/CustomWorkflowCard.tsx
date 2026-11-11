@@ -3,7 +3,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { Card, CardContent, CardHeader } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
-import type { JobWorkflowState, WorkflowTemplate } from "@/lib/workflows/types";
+import {
+  WORKFLOW_REQUIREMENTS,
+  requirementsForStage,
+  type JobWorkflowState,
+  type WorkflowTemplate,
+} from "@/lib/workflows/types";
 
 export default function CustomWorkflowCard({ jobNumber, onChanged }: { jobNumber: string; onChanged: () => Promise<void> }) {
   const [templates, setTemplates] = useState<WorkflowTemplate[]>([]);
@@ -13,6 +18,7 @@ export default function CustomWorkflowCard({ jobNumber, onChanged }: { jobNumber
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [confirmed, setConfirmed] = useState(false);
   const url = `/api/jobs/${encodeURIComponent(jobNumber)}/workflow`;
 
   const load = useCallback(async () => {
@@ -24,6 +30,7 @@ export default function CustomWorkflowCard({ jobNumber, onChanged }: { jobNumber
       if (!res.ok) throw new Error(json?.error || "Failed to load job workflow");
       setTemplates(json.templates ?? []);
       setCurrent(json.current ?? null);
+      setConfirmed(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load job workflow");
     } finally {
@@ -57,6 +64,9 @@ export default function CustomWorkflowCard({ jobNumber, onChanged }: { jobNumber
 
   const template = templates.find((item) => item.id === current?.workflow_id);
   const atFinal = Boolean(current && template && current.stage_index >= template.stages.length - 1);
+  const nextIndex = current ? current.stage_index + 1 : 0;
+  const conditions = requirementsForStage(template?.rules, nextIndex);
+  const confirmationNeeded = conditions.includes("manual_confirmation");
 
   return (
     <Card>
@@ -90,10 +100,28 @@ export default function CustomWorkflowCard({ jobNumber, onChanged }: { jobNumber
                 </span>
               ))}
             </div>
-            {atFinal ? <p className="text-sm font-medium text-green-700">All stages completed.</p> :
-              <Button variant="primary" disabled={saving} onClick={() => save("PATCH", { expectedIndex: current.stage_index })}>
-                {saving ? "Updating..." : `Move to: ${template.stages[current.stage_index + 1]}`}
-              </Button>}
+            {atFinal ? <p className="text-sm font-medium text-green-700">All stages completed.</p> : (
+              <div className="space-y-3">
+                {conditions.length > 0 && (
+                  <div className="rounded-md border border-neutral-200 bg-neutral-50 p-3 text-sm">
+                    <div className="mb-1 font-medium">Required before moving to {template.stages[nextIndex]}:</div>
+                    <ul className="list-inside list-disc text-neutral-700">
+                      {conditions.map((condition) => <li key={condition}>{WORKFLOW_REQUIREMENTS[condition]}</li>)}
+                    </ul>
+                  </div>
+                )}
+                {confirmationNeeded && (
+                  <label className="flex items-center gap-2 text-sm">
+                    <input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} />
+                    I confirm this stage&apos;s required work is complete.
+                  </label>
+                )}
+                <Button variant="primary" disabled={saving || (confirmationNeeded && !confirmed)}
+                  onClick={() => save("PATCH", { expectedIndex: current.stage_index, confirmed })}>
+                  {saving ? "Updating..." : `Move to: ${template.stages[nextIndex]}`}
+                </Button>
+              </div>
+            )}
           </>
         )}
         {!loading && current && !template && <p className="text-sm text-red-700">Assigned template not found. Contact your administrator.</p>}

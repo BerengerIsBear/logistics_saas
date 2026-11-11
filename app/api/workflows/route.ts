@@ -9,7 +9,7 @@ export async function GET() {
 
   const { data, error } = await supabaseAdmin()
     .from("workflow_templates")
-    .select("id,name,stages,created_at")
+    .select("id,name,stages,rules,created_at")
     .eq("company_id", auth.context.companyId)
     .order("created_at", { ascending: false });
 
@@ -20,7 +20,7 @@ export async function GET() {
 export async function POST(request: Request) {
   const auth = await requireRole(["admin"]);
   if ("response" in auth) return auth.response;
-  const { companyId, userId } = auth.context;
+  const { companyId } = auth.context;
 
   const validation = parseWorkflowInput(await request.json().catch(() => null));
   if (validation.error) return NextResponse.json({ error: validation.error }, { status: 400 });
@@ -28,8 +28,8 @@ export async function POST(request: Request) {
   const admin = supabaseAdmin();
   const { data, error } = await admin
     .from("workflow_templates")
-    .insert({ company_id: companyId, name: validation.name, stages: validation.stages })
-    .select("id,name,stages,created_at")
+    .insert({ company_id: companyId, name: validation.name, stages: validation.stages, rules: validation.rules })
+    .select("id,name,stages,rules,created_at")
     .single();
 
   if (error) {
