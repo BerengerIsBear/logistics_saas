@@ -11,6 +11,7 @@ import { Card, CardContent, CardHeader } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { SlaBadge } from "@/components/ui/SlaBadge";
+import JobFinancialCard from "@/features/jobs/components/JobFinancialCard";
 import { formatSlaDetail, formatSlaTarget, getJobSla } from "@/lib/jobs/sla";
 
 type JobStatus = "pending" | "assigned" | "in_transit" | "delivered";
@@ -72,8 +73,10 @@ type ActivityItem = {
 
 export default function JobDetailsPage({
   params,
+  canManageFinancials,
 }: {
   params: Promise<{ id: string }>;
+  canManageFinancials: boolean;
 }) {
   const { id } = use(params);
   const jobNumber = decodeURIComponent(id);
@@ -475,6 +478,12 @@ export default function JobDetailsPage({
         </Card>
       </div>
 
+      {canManageFinancials && (
+        <div className="mt-4">
+          <JobFinancialCard jobNumber={jobNumber} onSaved={() => void loadActivity()} />
+        </div>
+      )}
+
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader>
@@ -765,6 +774,7 @@ function formatActivityAction(action: string) {
     "job.completed": "Job completed",
     "pod.uploaded": "Proof of delivery uploaded",
     "pod.deleted": "Proof of delivery deleted",
+    "finance.updated": "Job financials updated",
   };
 
   return labels[action] ?? action;
@@ -822,6 +832,10 @@ function formatActivityDescription(
     return actionTime
       ? `Driver completed the job at ${formatDateTime(actionTime)}.`
       : "Driver completed the job.";
+  }
+
+  if (item.action === "finance.updated") {
+    return "Financial fields were updated by an administrator.";
   }
 
   if (item.action === "pod.uploaded") {
