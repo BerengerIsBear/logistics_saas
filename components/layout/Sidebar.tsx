@@ -17,6 +17,7 @@ export function Sidebar({ role }: { role: Role }) {
   const isProfitRiskActive = pathname.startsWith("/profit-risk");
   const isDriverPerformanceActive = pathname.startsWith("/driver-performance");
   const isSlaPerformanceActive = pathname.startsWith("/sla-performance");
+  const isOperationalRiskActive = pathname.startsWith("/operational-risk");
 
   const linkBase = "block rounded-md px-3 py-2 text-sm transition";
   const linkActive = "bg-neutral-900 text-white";
@@ -64,6 +65,12 @@ export function Sidebar({ role }: { role: Role }) {
               className={[linkBase, isSlaPerformanceActive ? linkActive : linkIdle].join(" ")}
             >
               SLA Performance
+            </Link>
+            <Link
+              href="/operational-risk"
+              className={[linkBase, isOperationalRiskActive ? linkActive : linkIdle].join(" ")}
+            >
+              Operational Risk
             </Link>
           </>
         ) : (
