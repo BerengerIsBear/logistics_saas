@@ -14,6 +14,7 @@ export function Sidebar({ role }: { role: Role }) {
   const isDriversActive = pathname.startsWith("/drivers");
   const isVehiclesActive = pathname.startsWith("/vehicles");
   const isProfitabilityActive = pathname.startsWith("/customer-profitability");
+  const isProfitRiskActive = pathname.startsWith("/profit-risk");
 
   const linkBase = "block rounded-md px-3 py-2 text-sm transition";
   const linkActive = "bg-neutral-900 text-white";
@@ -61,12 +62,20 @@ export function Sidebar({ role }: { role: Role }) {
         )}
 
         {role === "admin" && (
+          <>
+          <Link
+            href="/profit-risk"
+            className={[linkBase, isProfitRiskActive ? linkActive : linkIdle].join(" ")}
+          >
+            Profit & Risk
+          </Link>
           <Link
             href="/customer-profitability"
             className={[linkBase, isProfitabilityActive ? linkActive : linkIdle].join(" ")}
           >
             Customer Profitability
           </Link>
+          </>
         )}
 
         {role !== "driver" && (
