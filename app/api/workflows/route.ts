@@ -9,7 +9,7 @@ export async function GET() {
 
   const { data, error } = await supabaseAdmin()
     .from("workflow_templates")
-    .select("id,name,stages,rules,created_at")
+    .select("id,name,stages,rules,stage_sla_minutes,created_at")
     .eq("company_id", auth.context.companyId)
     .order("created_at", { ascending: false });
 
@@ -28,8 +28,8 @@ export async function POST(request: Request) {
   const admin = supabaseAdmin();
   const { data, error } = await admin
     .from("workflow_templates")
-    .insert({ company_id: companyId, name: validation.name, stages: validation.stages, rules: validation.rules })
-    .select("id,name,stages,rules,created_at")
+    .insert({ company_id: companyId, name: validation.name, stages: validation.stages, rules: validation.rules, stage_sla_minutes: validation.stage_sla_minutes })
+    .select("id,name,stages,rules,stage_sla_minutes,created_at")
     .single();
 
   if (error) {

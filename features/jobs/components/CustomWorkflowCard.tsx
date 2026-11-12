@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import {
   WORKFLOW_REQUIREMENTS,
+  getStageSlaStatus,
   requirementsForStage,
   type JobWorkflowState,
   type WorkflowTemplate,
@@ -19,6 +20,7 @@ export default function CustomWorkflowCard({ jobNumber, onChanged }: { jobNumber
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [confirmed, setConfirmed] = useState(false);
+  const [nowMs, setNowMs] = useState(() => Date.now());
   const url = `/api/jobs/${encodeURIComponent(jobNumber)}/workflow`;
 
   const load = useCallback(async () => {
@@ -39,6 +41,10 @@ export default function CustomWorkflowCard({ jobNumber, onChanged }: { jobNumber
   }, [url]);
 
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    const timer = window.setInterval(() => setNowMs(Date.now()), 15_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   async function save(method: "POST" | "PATCH", body: object) {
     setSaving(true);
@@ -67,6 +73,15 @@ export default function CustomWorkflowCard({ jobNumber, onChanged }: { jobNumber
   const nextIndex = current ? current.stage_index + 1 : 0;
   const conditions = requirementsForStage(template?.rules, nextIndex);
   const confirmationNeeded = conditions.includes("manual_confirmation");
+  const sla = current && template
+    ? getStageSlaStatus(current.stage_index, template.stages.length, current.stage_started_at, template.stage_sla_minutes, nowMs)
+    : null;
+
+  function formatDuration(ms: number) {
+    if (Math.abs(ms) < 60_000) return "less than 1 minute";
+    const minutes = Math.ceil(Math.abs(ms) / 60_000);
+    return `${minutes} minute${minutes === 1 ? "" : "s"}`;
+  }
 
   return (
     <Card>
@@ -100,7 +115,27 @@ export default function CustomWorkflowCard({ jobNumber, onChanged }: { jobNumber
                 </span>
               ))}
             </div>
-            {atFinal ? <p className="text-sm font-medium text-green-700">All stages completed.</p> : (
+            {sla && !atFinal && (
+              <div className={`mb-4 rounded-md p-3 text-sm ${sla.status === "breached" ? "bg-red-50 text-red-800" : sla.status === "at_risk" ? "bg-amber-50 text-amber-900" : "bg-neutral-100 text-neutral-800"}`}>
+                <div className="font-medium">
+                  {sla.status === "breached" ? "Stage SLA breached" :
+                    sla.status === "at_risk" ? "Stage SLA at risk" :
+                    sla.status === "on_track" ? "Stage SLA on track" :
+                    sla.status === "unknown" ? "Stage start time unavailable" :
+                    "No SLA timer configured for this stage"}
+                </div>
+                {sla.deadlineMs !== null && sla.remainingMs !== null && (
+                  <div className="mt-1">
+                    Stage time limit: {template.stage_sla_minutes[String(current.stage_index)]} minutes{" · "}
+                    {sla.status === "breached"
+                      ? `Overdue by ${formatDuration(sla.remainingMs)}`
+                      : `${formatDuration(sla.remainingMs)} remaining`}
+                    {" · Deadline: "}{new Date(sla.deadlineMs).toLocaleString()}
+                  </div>
+                )}
+              </div>
+            )}
+            {atFinal ? <p className="text-sm font-medium text-green-700">All stages completed. SLA timer stopped.</p> : (
               <div className="space-y-3">
                 {conditions.length > 0 && (
                   <div className="rounded-md border border-neutral-200 bg-neutral-50 p-3 text-sm">

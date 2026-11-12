@@ -11,6 +11,7 @@ import {
   requirementsForStage,
   type WorkflowRequirement,
   type WorkflowRules,
+  type WorkflowSlaMinutes,
   type WorkflowTemplate,
 } from "@/lib/workflows/types";
 
@@ -19,6 +20,7 @@ export default function WorkflowsPage({ canCreate }: { canCreate: boolean }) {
   const [name, setName] = useState("");
   const [stagesText, setStagesText] = useState("Created\nWarehouse\nLoaded\nDispatched\nDelivered");
   const [rules, setRules] = useState<WorkflowRules>({});
+  const [stageSlaMinutes, setStageSlaMinutes] = useState<WorkflowSlaMinutes>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -55,6 +57,15 @@ export default function WorkflowsPage({ canCreate }: { canCreate: boolean }) {
     });
   }
 
+  function updateStageTimer(index: number, value: string) {
+    setStageSlaMinutes((current) => {
+      const next = { ...current };
+      if (value === "") delete next[String(index)];
+      else next[String(index)] = Number(value);
+      return next;
+    });
+  }
+
   async function createWorkflow(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSaving(true);
@@ -65,12 +76,13 @@ export default function WorkflowsPage({ canCreate }: { canCreate: boolean }) {
       const res = await fetch("/api/workflows", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, stages, rules }),
+        body: JSON.stringify({ name, stages, rules, stage_sla_minutes: stageSlaMinutes }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error || "Failed to create workflow");
       setName("");
       setRules({});
+      setStageSlaMinutes({});
       setNotice("Workflow created. You can assign it to a job from Job Details.");
       await load();
     } catch (err) {
@@ -129,6 +141,26 @@ export default function WorkflowsPage({ canCreate }: { canCreate: boolean }) {
                   );
                 })}
               </div>
+              <div className="space-y-3">
+                <div className="text-sm font-semibold">Stage SLA timers (optional)</div>
+                <p className="text-xs text-neutral-500">Maximum time allowed IN each stage, starting when the job enters it. Leave blank for no time limit. Final stage needs no timer.</p>
+                {previewStages.slice(0, -1).map((stage, index) => (
+                  <label key={index} className="flex items-center justify-between gap-4 text-sm">
+                    <span>{index + 1}. {stage}</span>
+                    <span className="flex items-center gap-2">
+                      <Input
+                        className="w-28"
+                        type="number" min={1} max={10080} step={1}
+                        placeholder="No limit"
+                        value={stageSlaMinutes[String(index)] ?? ""}
+                        onChange={(event) => updateStageTimer(index, event.target.value)}
+                        aria-label={`Time limit for ${stage} in minutes`}
+                      />
+                      <span className="text-neutral-500">min</span>
+                    </span>
+                  </label>
+                ))}
+              </div>
               <Button type="submit" variant="primary" disabled={saving}>{saving ? "Creating..." : "Create Workflow"}</Button>
             </form>
           </CardContent>
@@ -148,6 +180,14 @@ export default function WorkflowsPage({ canCreate }: { canCreate: boolean }) {
                     <span key={`${template.id}-${index}`} className="rounded bg-neutral-100 px-3 py-1 text-xs text-neutral-700">{index + 1}. {stage}</span>
                   ))}
                 </div>
+                {template.stages.slice(0, -1).map((stage, index) => {
+                  const minutes = template.stage_sla_minutes?.[String(index)];
+                  return minutes ? (
+                    <p key={`sla-${index}`} className="mt-2 text-xs text-neutral-600">
+                      <span className="font-medium">In {stage}:</span> {minutes} minute SLA
+                    </p>
+                  ) : null;
+                })}
                 {template.stages.slice(1).map((stage, offset) => {
                   const conditions = requirementsForStage(template.rules, offset + 1);
                   return conditions.length > 0 ? (
