@@ -21,6 +21,7 @@ export function Sidebar({ role }: { role: Role }) {
   const isWorkflowsActive = pathname.startsWith("/workflows");
   const isEscalationsActive = pathname.startsWith("/workflow-escalations");
   const isReportsActive = pathname.startsWith("/reports");
+  const isEmployeesActive = pathname.startsWith("/employees");
 
   const linkBase = "block rounded-md px-3 py-2 text-sm transition";
   const linkActive = "bg-neutral-900 text-white";
@@ -112,6 +113,12 @@ export function Sidebar({ role }: { role: Role }) {
             Customer Profitability
           </Link>
           </>
+        )}
+
+        {role === "admin" && (
+          <Link href="/employees" className={[linkBase, isEmployeesActive ? linkActive : linkIdle].join(" ")}>
+            Employees
+          </Link>
         )}
 
         {role !== "driver" && (

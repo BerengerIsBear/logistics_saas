@@ -41,13 +41,13 @@ export async function getAccessContext(): Promise<AccessResult> {
   // NEVER trust a role supplied by the browser or user metadata.
   const { data: profile, error } = await supabaseAdmin()
     .from("profiles")
-    .select("company_id, driver_id, role")
+    .select("company_id, driver_id, role, is_active")
     .eq("id", user.id)
     .maybeSingle();
 
   // Fail closed when no valid role/company is assigned.
-  if (error || !profile?.company_id || !isRole(profile.role)) {
-    return { status: 403, error: "No valid company profile or role" };
+  if (error || !profile?.company_id || !isRole(profile.role) || profile.is_active !== true) {
+    return { status: 403, error: "Account disabled or no valid company profile/role" };
   }
 
   return {
