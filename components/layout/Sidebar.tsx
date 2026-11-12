@@ -20,6 +20,7 @@ export function Sidebar({ role }: { role: Role }) {
   const isOperationalRiskActive = pathname.startsWith("/operational-risk");
   const isWorkflowsActive = pathname.startsWith("/workflows");
   const isEscalationsActive = pathname.startsWith("/workflow-escalations");
+  const isReportsActive = pathname.startsWith("/reports");
 
   const linkBase = "block rounded-md px-3 py-2 text-sm transition";
   const linkActive = "bg-neutral-900 text-white";
@@ -115,11 +116,16 @@ export function Sidebar({ role }: { role: Role }) {
 
         {role !== "driver" && (
           <>
+            <Link
+              href="/reports"
+              className={[linkBase, isReportsActive ? linkActive : linkIdle].join(" ")}
+            >
+              Reports
+            </Link>
             <div className="mt-4 px-3 text-xs uppercase text-neutral-400">
               Coming next
             </div>
             <div className="px-3 py-2 text-sm text-neutral-400">Invoices</div>
-            <div className="px-3 py-2 text-sm text-neutral-400">Reports</div>
             <div className="px-3 py-2 text-sm text-neutral-400">Settings</div>
           </>
         )}
