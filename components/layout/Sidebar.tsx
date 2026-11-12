@@ -19,6 +19,7 @@ export function Sidebar({ role }: { role: Role }) {
   const isSlaPerformanceActive = pathname.startsWith("/sla-performance");
   const isOperationalRiskActive = pathname.startsWith("/operational-risk");
   const isWorkflowsActive = pathname.startsWith("/workflows");
+  const isEscalationsActive = pathname.startsWith("/workflow-escalations");
 
   const linkBase = "block rounded-md px-3 py-2 text-sm transition";
   const linkActive = "bg-neutral-900 text-white";
@@ -60,6 +61,12 @@ export function Sidebar({ role }: { role: Role }) {
               className={[linkBase, isWorkflowsActive ? linkActive : linkIdle].join(" ")}
             >
               Workflows
+            </Link>
+            <Link
+              href="/workflow-escalations"
+              className={[linkBase, isEscalationsActive ? linkActive : linkIdle].join(" ")}
+            >
+              Workflow Escalations
             </Link>
             <Link
               href="/driver-performance"
