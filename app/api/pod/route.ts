@@ -20,6 +20,18 @@ function normalizeJobNumber(v: string) {
   return v.trim();
 }
 
+// Determine type from the bytes, not the browser-supplied MIME or filename.
+async function detectPodType(file: File): Promise<{ mime: string; ext: string } | null> {
+  const bytes = new Uint8Array(await file.slice(0, 8).arrayBuffer());
+  if (bytes.length >= 8 && [137, 80, 78, 71, 13, 10, 26, 10]
+    .every((value, i) => bytes[i] === value)) return { mime: "image/png", ext: "png" };
+  if (bytes.length >= 3 && bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255)
+    return { mime: "image/jpeg", ext: "jpg" };
+  if (bytes.length >= 5 && [37, 80, 68, 70, 45]
+    .every((value, i) => bytes[i] === value)) return { mime: "application/pdf", ext: "pdf" };
+  return null;
+}
+
 async function assertJobNumberOwned(companyId: string, jobNumber: string) {
   const { data, error } = await admin
     .from("jobs")
@@ -58,7 +70,7 @@ export async function GET(req: Request) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  const items: any[] = [];
+  const items: Array<Record<string, unknown>> = [];
   for (const r of rows ?? []) {
     const { data: signed, error: signErr } = await admin.storage
       .from(BUCKET)
@@ -87,19 +99,22 @@ export async function POST(req: Request) {
   const owned = await assertJobNumberOwned(companyId, jobNumber);
   if (!owned.ok) return NextResponse.json({ error: owned.error }, { status: 400 });
 
-  const sizeMb = file.size / (1024 * 1024);
-  if (sizeMb > MAX_MB) {
-    return NextResponse.json({ error: `Max file size is ${MAX_MB}MB` }, { status: 400 });
+  if (file.size === 0 || file.size > MAX_MB * 1024 * 1024) {
+    return NextResponse.json({ error: `File must be 1 byte to ${MAX_MB}MB` }, { status: 400 });
+  }
+  const fileType = await detectPodType(file);
+  if (!fileType) {
+    return NextResponse.json({ error: "Only JPG, PNG or PDF proof files are allowed" }, { status: 400 });
   }
 
-  const filename = safeName(file.name);
-  const ext = filename.includes(".") ? filename.split(".").pop() : "bin";
+  const filename = safeName(file.name).slice(0, 180) || `proof.${fileType.ext}`;
+  const ext = fileType.ext;
 
   // ✅ keep path consistent with existing rows (jobNumber)
   const filePath = `companies/${companyId}/jobs/${jobNumber}/${crypto.randomUUID()}.${ext}`;
 
   const { error: upErr } = await admin.storage.from(BUCKET).upload(filePath, file, {
-    contentType: file.type || "application/octet-stream",
+    contentType: fileType.mime,
     upsert: false,
   });
   if (upErr) return NextResponse.json({ error: upErr.message }, { status: 500 });
@@ -111,13 +126,17 @@ export async function POST(req: Request) {
       job_id: jobNumber, // ✅ stored as job_number text
       file_name: filename,
       file_path: filePath,
-      mime_type: file.type,
+      mime_type: fileType.mime,
       size: file.size,
     })
     .select("*")
     .single();
 
-  if (insErr) return NextResponse.json({ error: insErr.message }, { status: 500 });
+  if (insErr) {
+    // Don't leave an untracked file behind when the database insert fails.
+    await admin.storage.from(BUCKET).remove([filePath]);
+    return NextResponse.json({ error: "Could not save proof file record" }, { status: 500 });
+  }
 
   const { data: signed, error: signErr } = await admin.storage
     .from(BUCKET)

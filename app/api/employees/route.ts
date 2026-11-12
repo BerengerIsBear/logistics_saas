@@ -39,6 +39,16 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Set APP_URL to your application URL before sending invitations" }, { status: 500 });
   }
   const admin = supabaseAdmin();
+  // Check before sending an invitation: an existing employee cannot be
+  // reassigned to another tenant through an invitation.
+  const { data: existingEmail, error: lookupError } = await admin.from("profiles")
+    .select("id").eq("email", email).limit(1).maybeSingle();
+  if (lookupError) {
+    return NextResponse.json({ error: "Could not validate the invitation" }, { status: 500 });
+  }
+  if (existingEmail) {
+    return NextResponse.json({ error: "This email already has an employee account" }, { status: 409 });
+  }
   const { data: invite, error: inviteError } = await admin.auth.admin.inviteUserByEmail(email, {
     redirectTo: `${baseUrl.replace(/\/$/, "")}/accept-invite`,
   });
