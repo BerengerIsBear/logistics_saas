@@ -236,6 +236,37 @@ export default function LoginPage() {
 
             {msg ? <div className="text-sm text-red-600">{msg}</div> : null}
           </form>
+
+          {/* Public demo credentials — use only with a non-sensitive demo account. */}
+          <div className="mt-6 rounded-lg border border-neutral-200 bg-neutral-50 p-4">
+            <div className="text-sm font-semibold text-neutral-900">
+              Try our demo
+            </div>
+            <p className="mt-1 text-xs text-neutral-600">
+              Explore a sample logistics company with 100 demo jobs.
+            </p>
+            <div className="mt-3 space-y-1 text-sm text-neutral-700">
+              <p>
+                <span className="font-medium">Email:</span> demo@example.com
+              </p>
+              <p>
+                <span className="font-medium">Password:</span> demodemo
+              </p>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              className="mt-3 w-full"
+              disabled={loading}
+              onClick={() => {
+                setEmail("demo@example.com");
+                setPassword("demodemo");
+                setMsg("");
+              }}
+            >
+              Use demo credentials
+            </Button>
+          </div>
         </CardContent>
       </Card>
     </main>
