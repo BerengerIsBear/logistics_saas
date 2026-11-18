@@ -87,6 +87,7 @@ export default function EmployeesPage({ currentUserId }: { currentUserId: string
       if (!res.ok) throw new Error(json.error || "Could not save employee");
       setShowInvite(false); setEditId(null);
       setMessage(inviting ? "Invitation sent. The employee can accept by email and choose a password." : "Employee updated.");
+      if (json.audit_warning) setError(json.audit_warning);
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not save employee");
@@ -104,6 +105,7 @@ export default function EmployeesPage({ currentUserId }: { currentUserId: string
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Could not change employee access");
       setMessage(item.is_active ? "Employee access disabled." : "Employee access enabled.");
+      if (json.audit_warning) setError(json.audit_warning);
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not change employee access");

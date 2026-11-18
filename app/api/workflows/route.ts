@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth/access";
 import { supabaseAdmin } from "@/lib/supabase/server";
 import { parseWorkflowInput } from "@/lib/workflows/types";
+import { logAdminEvent, auditWarning } from "@/lib/audit/logAdminEvent";
 
 export async function GET() {
   const auth = await requireRole(["admin", "dispatcher"]);
@@ -37,5 +38,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json({ template: data }, { status: 201 });
+  const logged = await logAdminEvent({
+    admin, companyId, actorUserId: auth.context.userId,
+    action: "workflow.created", targetType: "workflow", targetId: data.id,
+    details: { name: data.name, stages: data.stages, stage_sla_minutes: data.stage_sla_minutes },
+  });
+  return NextResponse.json({
+    template: data, ...(!logged ? { audit_warning: auditWarning } : {}),
+  }, { status: 201 });
 }

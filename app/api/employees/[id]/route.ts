@@ -3,6 +3,7 @@ import { requireRole } from "@/lib/auth/access";
 import { supabaseAdmin } from "@/lib/supabase/server";
 import { parseDriverId, parseRole } from "@/lib/employees/validation";
 import { isSameOrigin, validateDriverLink } from "@/lib/employees/server";
+import { logAdminEvent, auditWarning } from "@/lib/audit/logAdminEvent";
 
 export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const auth = await requireRole(["admin"]);
@@ -51,5 +52,20 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     .select("id, email, role, driver_id, is_active").maybeSingle();
   if (error) return NextResponse.json({ error: "Could not update employee. Check driver link uniqueness." }, { status: 400 });
   if (!data) return NextResponse.json({ error: "Employee not found" }, { status: 404 });
-  return NextResponse.json({ employee: data });
+  const changed = (["role", "driver_id", "is_active"] as const)
+    .filter(field => target[field] !== data[field]);
+  let logged = true;
+  if (changed.length) {
+    logged = await logAdminEvent({
+      admin, companyId: auth.context.companyId, actorUserId: auth.context.userId,
+      action: "employee.updated", targetType: "employee", targetId: id,
+      details: {
+        email: data.email,
+        changed_fields: changed,
+        before: { role: target.role, driver_id: target.driver_id, is_active: target.is_active },
+        after: { role: data.role, driver_id: data.driver_id, is_active: data.is_active },
+      },
+    });
+  }
+  return NextResponse.json({ employee: data, ...(!logged ? { audit_warning: auditWarning } : {}) });
 }

@@ -3,6 +3,7 @@ import { requireRole } from "@/lib/auth/access";
 import { supabaseAdmin } from "@/lib/supabase/server";
 import { getFinancialTotals, type JobFinancials } from "@/lib/jobs/finance";
 import { logActivity } from "@/lib/activity/logActivity";
+import { logAdminEvent, auditWarning } from "@/lib/audit/logAdminEvent";
 
 type Context = { params: Promise<{ id: string }> };
 const fields = ["revenue", "driver_cost", "fuel_cost", "vehicle_cost", "other_cost"] as const;
@@ -116,6 +117,7 @@ export async function PUT(req: Request, ctx: Context) {
   const financials = toFinancials(data);
   const previousValues = previous ? toFinancials(previous) : null;
   const changedFields = fields.filter(field => previousValues?.[field] !== financials[field]);
+  let logged = true;
   if (changedFields.length > 0) {
     // Do not put revenue/cost values in the general activity feed — dispatchers
     // can see that feed. Record only what fields were changed, and by whom.
@@ -124,8 +126,16 @@ export async function PUT(req: Request, ctx: Context) {
       action: "finance.updated",
       meta: { job_number: jobNumber, fields_changed: changedFields },
     });
+    // Detailed old/new amounts are visible only in the Admin Audit Log.
+    logged = await logAdminEvent({
+      admin, companyId, actorUserId: userId,
+      action: "finance.updated", targetType: "job", targetId: job.id,
+      details: { job_number: jobNumber, changed_fields: changedFields,
+        before: previousValues, after: financials },
+    });
   }
 
-  return NextResponse.json({ financials, totals: getFinancialTotals(financials) },
+  return NextResponse.json({ financials, totals: getFinancialTotals(financials),
+      ...(!logged ? { audit_warning: auditWarning } : {}) },
     { headers: { "Cache-Control": "private, no-store" } });
 }

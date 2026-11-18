@@ -85,6 +85,7 @@ export default function WorkflowsPage({ canCreate }: { canCreate: boolean }) {
       setStageSlaMinutes({});
       setNotice("Workflow created. You can assign it to a job from Job Details.");
       await load();
+      if (json.audit_warning) setError(json.audit_warning);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create workflow");
     } finally {

@@ -22,6 +22,7 @@ export function Sidebar({ role }: { role: Role }) {
   const isEscalationsActive = pathname.startsWith("/workflow-escalations");
   const isReportsActive = pathname.startsWith("/reports");
   const isEmployeesActive = pathname.startsWith("/employees");
+  const isAdminAuditActive = pathname.startsWith("/admin-audit");
 
   const linkBase = "block rounded-md px-3 py-2 text-sm transition";
   const linkActive = "bg-neutral-900 text-white";
@@ -118,6 +119,12 @@ export function Sidebar({ role }: { role: Role }) {
         {role === "admin" && (
           <Link href="/employees" className={[linkBase, isEmployeesActive ? linkActive : linkIdle].join(" ")}>
             Employees
+          </Link>
+        )}
+
+        {role === "admin" && (
+          <Link href="/admin-audit" className={[linkBase, isAdminAuditActive ? linkActive : linkIdle].join(" ")}>
+            Admin Audit Log
           </Link>
         )}
 

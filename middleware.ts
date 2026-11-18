@@ -12,7 +12,7 @@ export async function middleware(req: NextRequest) {
   // Page protection is also enforced by the server layouts and API role checks.
   const protectedPages = [
     "/jobs", "/customers", "/drivers", "/vehicles", "/driver-jobs",
-    "/employees", "/workflows", "/workflow-escalations",
+    "/employees", "/admin-audit", "/workflows", "/workflow-escalations",
     "/driver-performance", "/sla-performance", "/operational-risk",
     "/profit-risk", "/customer-profitability", "/reports", "/settings", "/invoices",
   ];

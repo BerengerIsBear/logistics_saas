@@ -106,6 +106,7 @@ export default function JobFinancialCard({
       if (!res.ok) throw new Error(result.error || "Could not save finances");
       setForm(toForm(result.financials));
       setMessage("Financial details saved.");
+      if (result.audit_warning) setError(result.audit_warning);
       onSaved?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not save finances");

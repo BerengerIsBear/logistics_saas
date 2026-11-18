@@ -3,6 +3,7 @@ import { requireRole } from "@/lib/auth/access";
 import { supabaseAdmin } from "@/lib/supabase/server";
 import { parseDriverId, parseEmail, parseRole } from "@/lib/employees/validation";
 import { isSameOrigin, validateDriverLink } from "@/lib/employees/server";
+import { logAdminEvent, auditWarning } from "@/lib/audit/logAdminEvent";
 
 export async function GET() {
   const auth = await requireRole(["admin"]);
@@ -83,5 +84,13 @@ export async function POST(req: Request) {
     }, { status: 500 });
   }
 
-  return NextResponse.json({ employee: { id: invite.user.id, email, role } }, { status: 201 });
+  const logged = await logAdminEvent({
+    admin, companyId: auth.context.companyId, actorUserId: auth.context.userId,
+    action: "employee.invited", targetType: "employee", targetId: invite.user.id,
+    details: { email, role, driver_id: profile.driver_id },
+  });
+  return NextResponse.json({
+    employee: { id: invite.user.id, email, role },
+    ...(!logged ? { audit_warning: auditWarning } : {}),
+  }, { status: 201 });
 }
